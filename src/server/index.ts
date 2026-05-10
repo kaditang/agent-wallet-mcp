@@ -17,11 +17,13 @@ import bs58 from "bs58"
 import { dispatch as toolDispatch, getToolList } from "./tools.js"
 import { getBalances } from "../sol/balances.js"
 import {
+  BroadcastLockError,
   getSignableTx,
   recordSignature,
   updateRebuiltTx,
   withBroadcastLock,
 } from "../sol/sign-store.js"
+import { randomUUID } from "node:crypto"
 import { withRpcFallback } from "../sol/connection.js"
 import { SOL_AGENT_PUBKEY } from "../sol/agent.js"
 import {
@@ -112,12 +114,18 @@ app.get("/healthz", async (_req, res) => {
 // autoyield.org/account.html as the "authorization_endpoint" (where users go
 // to sign in with Phantom and copy the key). Dynamic client registration
 // returns a no-op success so the client proceeds to use the static Bearer.
+if (process.env.NODE_ENV === "production" && !process.env.PUBLIC_ORIGIN) {
+  console.warn(
+    "[startup] PUBLIC_ORIGIN env not set; falling back to hardcoded https://autoyield-api.fly.dev. " +
+      "Set PUBLIC_ORIGIN to the actual public URL if it differs.",
+  )
+}
 const ORIGIN = process.env.PUBLIC_ORIGIN ?? "https://autoyield-api.fly.dev"
 const ACCOUNT_PAGE = process.env.WEB_BASE_URL
   ? `${process.env.WEB_BASE_URL.replace(/\/$/, "")}/account.html`
   : "https://autoyield.org/account.html"
 
-app.get("/.well-known/oauth-protected-resource", (_req, res) => {
+app.get("/.well-known/oauth-protected-resource", readLimiter, (_req, res) => {
   res.json({
     resource: ORIGIN,
     authorization_servers: [ORIGIN],
@@ -126,7 +134,7 @@ app.get("/.well-known/oauth-protected-resource", (_req, res) => {
   })
 })
 
-app.get("/.well-known/oauth-authorization-server", (_req, res) => {
+app.get("/.well-known/oauth-authorization-server", readLimiter, (_req, res) => {
   res.json({
     issuer: ORIGIN,
     authorization_endpoint: ACCOUNT_PAGE,
@@ -140,11 +148,12 @@ app.get("/.well-known/oauth-authorization-server", (_req, res) => {
   })
 })
 
-// Dynamic client registration stub. Returns a fake client_id; mcp-remote
+// Dynamic client registration stub. Returns a random client_id; mcp-remote
 // proceeds to use the static Bearer header from --header anyway.
-app.post("/register", (_req, res) => {
+app.post("/register", readLimiter, (req, res) => {
+  audit({ kind: "client_register", ip: req.ip })
   res.json({
-    client_id: `mcp-client-${Date.now()}`,
+    client_id: `mcp-client-${randomUUID()}`,
     client_id_issued_at: Math.floor(Date.now() / 1000),
     token_endpoint_auth_method: "none",
     grant_types: ["authorization_code"],
@@ -156,7 +165,7 @@ app.post("/register", (_req, res) => {
 // Token endpoint stub — never reached in practice because users provide a
 // pre-issued ak_ key in the Authorization header. If a client tries this
 // path we return a clear "use the API key from /account.html" error.
-app.post("/auth/token-stub", (_req, res) => {
+app.post("/auth/token-stub", readLimiter, (_req, res) => {
   res.status(400).json({
     error: "unsupported_grant_type",
     error_description:
@@ -388,19 +397,10 @@ app.post("/sign/rebuild/:id", buildLimiter, async (req, res) => {
   }
 })
 
-app.post("/sign/confirm", readLimiter, (req, res) => {
-  const { id, signature } = req.body ?? {}
-  if (typeof id !== "string" || typeof signature !== "string") {
-    res.status(400).json({ error: "id and signature required" })
-    return
-  }
-  const ok = recordSignature(id, signature)
-  if (!ok) {
-    res.status(404).json({ error: "tx not found or expired" })
-    return
-  }
-  res.json({ ok: true })
-})
+// (Removed: /sign/confirm — was an unauthenticated UX update path that let any
+// caller with the signId mark a tx "Already signed" with an arbitrary string.
+// The real signature is recorded server-side after a successful /sign/broadcast,
+// so the frontend ping was redundant. Removed audit-pass-2 2026-05-10.)
 
 // Broadcast a CLIENT-SIGNED tx via our backend's reliable RPC. Used when
 // Phantom's `signAndSendTransaction` broadcast is unreliable; the sign page
@@ -483,9 +483,9 @@ app.post("/sign/broadcast", broadcastLimiter, async (req, res) => {
       signId: id,
       error: raw.slice(0, 200),
     })
-    if (/already broadcast|already in flight/i.test(raw)) {
+    if (e instanceof BroadcastLockError) {
       // 409 errors are user-facing logic, safe to expose verbatim
-      res.status(409).json({ error: raw })
+      res.status(409).json({ error: e.message, reason: e.reason })
     } else {
       reply500(res, e)
     }

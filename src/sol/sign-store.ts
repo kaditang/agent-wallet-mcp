@@ -124,6 +124,24 @@ export function updateRebuiltTx(
 }
 
 /**
+ * Distinct error class for broadcast-lock conflicts so callers can branch on
+ * `instanceof` instead of regex-matching error messages.
+ */
+export class BroadcastLockError extends Error {
+  reason: "already-broadcast" | "in-flight"
+  constructor(reason: "already-broadcast" | "in-flight", message?: string) {
+    super(
+      message ??
+        (reason === "already-broadcast"
+          ? "already broadcast — signature exists for this tx id"
+          : "a broadcast is already in flight for this tx id"),
+    )
+    this.name = "BroadcastLockError"
+    this.reason = reason
+  }
+}
+
+/**
  * Run `fn` exclusively for this id — if a broadcast is already in flight,
  * the second caller waits for the first to finish (or fail) and is then told
  * the tx is already broadcasting/done.
@@ -134,17 +152,17 @@ export async function withBroadcastLock<T>(
 ): Promise<T> {
   const tx = STORE.get(id)
   if (tx?.signature) {
-    throw new Error("already broadcast — signature exists for this tx id")
+    throw new BroadcastLockError("already-broadcast")
   }
   if (tx?.broadcastingAt) {
-    throw new Error("a broadcast is already in flight for this tx id")
+    throw new BroadcastLockError("in-flight")
   }
   const existing = LOCKS.get(id)
   if (existing) {
     // Should be unreachable because broadcastingAt is set synchronously below,
     // but keep as a safety net.
     await existing.catch(() => {})
-    throw new Error("a broadcast is already in flight for this tx id")
+    throw new BroadcastLockError("in-flight")
   }
   if (tx) {
     tx.broadcastingAt = Date.now()

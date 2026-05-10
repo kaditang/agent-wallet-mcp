@@ -344,16 +344,10 @@ async function sign(tx: any) {
     `Submitted.\nSignature: ${signature}\nhttps://solscan.io/tx/${signature}\n\nWaiting for confirmation…`,
   )
 
-  // Tell backend
-  try {
-    await fetch(`${apiBase}/sign/confirm`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: tx.id, signature }),
-    })
-  } catch {
-    // best-effort
-  }
+  // (No /sign/confirm ping — backend records the signature server-side
+  // when broadcast succeeds; the extra round-trip was redundant + an
+  // unauthenticated write surface attackers could abuse to mark txs
+  // "already signed" with arbitrary bytes.)
 
   try {
     const conf = await conn.confirmTransaction(signature, "confirmed")
