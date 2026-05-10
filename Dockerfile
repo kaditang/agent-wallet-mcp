@@ -21,6 +21,10 @@ COPY --from=build /app/dist ./dist
 
 # /data is the persistent volume mount in fly.toml. sign-store and audit log
 # both write here so a redeploy doesn't lose pending sigs or audit history.
+# NOTE: still runs as root. Fly's firecracker VMs isolate us, but moving to
+# the `node` user is a backlog item — requires migrating the existing volume
+# (files owned by root from prior deploys would become unwritable). To switch
+# safely: add a tini/su-exec entrypoint that chowns /data at runtime.
 RUN mkdir -p /data
 ENV SIGN_STORE_PATH=/data/sign-store.json
 ENV AUDIT_LOG_PATH=/data/audit.log

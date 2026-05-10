@@ -67,20 +67,39 @@ const oauthFlow = (() => {
 // Hosts allowed to receive an OAuth `code=<api-key>` callback without a
 // confirmation prompt. Smithery's gateway uses `*.smithery.run`,
 // `*.smithery.ai`, AND `*.run.tools` (their separate proxy TLD), so all
-// three are explicitly trusted.
-const KNOWN_MCP_GATEWAY_HOSTS = [
-  "smithery.run",
-  "smithery.ai",
-  "run.tools",
-  "localhost",
-  "127.0.0.1",
-]
+// three are explicitly trusted. localhost/127.0.0.1 are trusted ONLY as
+// exact matches — the audit flagged `.localhost` subdomain wildcards
+// because some browser DNS configs resolve `*.localhost` to 127.0.0.1
+// and a phishing site running `attacker.localhost` would otherwise have
+// been considered trusted.
+const KNOWN_MCP_GATEWAY_HOSTS_WILDCARD = ["smithery.run", "smithery.ai", "run.tools"]
+const KNOWN_MCP_GATEWAY_HOSTS_EXACT = ["localhost", "127.0.0.1"]
+
 function redirectIsTrusted(uri: string): boolean {
   try {
     const u = new URL(uri)
-    return KNOWN_MCP_GATEWAY_HOSTS.some(
-      (h) => u.hostname === h || u.hostname.endsWith("." + h),
+    // SECURITY: only http(s). new URL("javascript:alert(1)") parses with
+    // hostname="" — without this check, such a URI fell through to the
+    // untrusted-with-consent path and a user click could execute attacker
+    // JS in the autoyield.org origin (where the api key is in the DOM).
+    if (u.protocol !== "http:" && u.protocol !== "https:") return false
+    const host = u.hostname
+    if (KNOWN_MCP_GATEWAY_HOSTS_EXACT.includes(host)) return true
+    return KNOWN_MCP_GATEWAY_HOSTS_WILDCARD.some(
+      (h) => host === h || host.endsWith("." + h),
     )
+  } catch {
+    return false
+  }
+}
+
+/** Scheme-and-shape pre-check for any redirect_uri we'd consider following.
+ *  Even on the untrusted-with-consent path, we never want to navigate to
+ *  `javascript:` or `data:` URIs. Audit P2. */
+function redirectIsSafeScheme(uri: string): boolean {
+  try {
+    const u = new URL(uri)
+    return u.protocol === "https:" || u.protocol === "http:"
   } catch {
     return false
   }
@@ -202,6 +221,18 @@ btn.addEventListener("click", async () => {
   // api key as the authorization code. Skip showing the key page since
   // the client will exchange it server-side.
   if (oauthFlow) {
+    // SECURITY: refuse non-http(s) redirect URIs outright — javascript:
+    // and data: URIs would execute attacker JS in the autoyield.org
+    // origin (where the api key lives in the DOM). Audit P2.
+    if (!redirectIsSafeScheme(oauthFlow.redirectUri)) {
+      setStatus(
+        "err",
+        "Refused: the OAuth redirect_uri must use http or https. The MCP client appears to be misconfigured (or the page was opened from a malicious link).",
+      )
+      btn.disabled = true
+      btn.textContent = "Aborted"
+      return
+    }
     const callback = new URL(oauthFlow.redirectUri)
     callback.searchParams.set("code", apiKey)
     if (oauthFlow.state) callback.searchParams.set("state", oauthFlow.state)
