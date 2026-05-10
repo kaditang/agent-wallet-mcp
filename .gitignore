@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+web/node_modules/
+*.log
+npm-debug.log*
+
+# Build artifacts
+dist/
+web/dist/
+*.tsbuildinfo
+
+# Secrets & local state — NEVER commit
+.env
+.env.*
+!.env.example
+web/.env
+web/.env.*
+!web/.env.example
+
+# Per-user data store (test data, may include wallet PDAs)
+data/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+.vite/
+web/.vite/
+
+# Local debug / temp scripts
+list-dshares-tmp.ts
+check-rwa-tmp.ts
+find-pool-tmp.ts
+decimal-check-tmp.ts
+*-tmp.ts
+/tmp/
+
+# Backup
+*.bak
+.claude_desktop_config.json.bak

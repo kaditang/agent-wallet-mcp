@@ -1,0 +1,57 @@
+{
+  "name": "@kadi/agent-wallet-mcp",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Non-custodial RWA + yield service for AI agents on Solana. Compare yields, quote/buy/sell tokenized US equities (Backed xStocks) and tokenized treasuries (Ondo USDY). User signs in their own wallet — we never sign.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "claude",
+    "solana",
+    "rwa",
+    "tokenized-stocks",
+    "xstocks",
+    "ondo",
+    "usdy",
+    "jupiter",
+    "yield",
+    "defi"
+  ],
+  "homepage": "https://github.com/kadi/agent-wallet-mcp",
+  "license": "MIT",
+  "main": "dist/server/index.js",
+  "bin": {
+    "agent-wallet-mcp": "./dist/server/index.js"
+  },
+  "files": ["dist", "README.md", "mcp-manifest.json", "assets"],
+  "scripts": {
+    "mcp:http": "tsx src/server/index.ts",
+    "mcp:stdio": "tsx src/server/stdio.ts",
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "@solana/web3.js": "^1.98.4",
+    "@sqds/multisig": "^2.1.4",
+    "@types/cors": "^2.8.19",
+    "@zerodev/ecdsa-validator": "^5.4.3",
+    "@zerodev/permissions": "^5.5.5",
+    "@zerodev/sdk": "^5.4.10",
+    "bs58": "^6.0.0",
+    "cors": "^2.8.6",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "tslib": "^2.8.1",
+    "viem": "^2.28.0",
+    "yahoo-finance2": "^3.14.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.19.17",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

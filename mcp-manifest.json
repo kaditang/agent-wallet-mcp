@@ -1,0 +1,84 @@
+{
+  "$schema": "https://schemas.mcpservers.org/manifest.v1.json",
+  "name": "agent-wallet",
+  "displayName": "Agent Wallet — Non-custodial RWA service for AI",
+  "version": "0.2.0",
+  "description": "Connect this MCP and your AI can compare on-chain yields, quote tokenized US equities, and build ready-to-sign Solana transactions for buying / selling Backed xStocks (NVDAx, AAPLx, TSLAx, SPYx) or depositing into Ondo USDY tokenized treasuries. Funds stay in your existing Phantom wallet — we never sign or custody.",
+  "tagline": "Your AI's RWA + yield analyst on Solana. Non-custodial.",
+  "homepage": "https://github.com/kadi/agent-wallet-mcp",
+  "repository": "https://github.com/kadi/agent-wallet-mcp",
+  "license": "MIT",
+  "author": "kadi",
+  "categories": ["finance", "defi", "rwa", "solana", "stocks", "yield"],
+  "keywords": [
+    "solana",
+    "rwa",
+    "tokenized stocks",
+    "xstocks",
+    "ondo",
+    "usdy",
+    "yield",
+    "defi",
+    "non-custodial",
+    "phantom",
+    "jupiter"
+  ],
+  "icon": "./assets/icon.png",
+  "screenshots": [
+    "./assets/screenshot-list-yields.png",
+    "./assets/screenshot-buy-nvdax.png",
+    "./assets/screenshot-sign-page.png",
+    "./assets/screenshot-portfolio.png"
+  ],
+  "transports": ["stdio", "http"],
+  "install": {
+    "stdio": {
+      "command": "npx",
+      "args": ["-y", "@kadi/agent-wallet-mcp"]
+    },
+    "http": {
+      "url": "http://localhost:3030/mcp",
+      "headers": { "Authorization": "Bearer YOUR_TOKEN" }
+    }
+  },
+  "tools": [
+    {
+      "name": "compare_yields",
+      "summary": "Rank USDC lending APY across Solana / ETH / Base / Arbitrum (DefiLlama)."
+    },
+    { "name": "list_yield_tokens", "summary": "List supported tokenized treasuries (USDY)." },
+    { "name": "list_xstocks", "summary": "List supported tokenized US equities." },
+    {
+      "name": "quote_tokenized_stock",
+      "summary": "Live Jupiter quote for USDC → xStock."
+    },
+    { "name": "get_portfolio", "summary": "Wallet snapshot (SOL / USDC / xStocks valued)." },
+    { "name": "track_tx", "summary": "On-chain confirmation status for a Solana signature." },
+    {
+      "name": "build_deposit_yield_tx",
+      "summary": "Construct unsigned USDC → USDY tx + sign URL."
+    },
+    {
+      "name": "build_withdraw_yield_tx",
+      "summary": "Construct unsigned USDY → USDC tx + sign URL."
+    },
+    {
+      "name": "build_buy_xstock_tx",
+      "summary": "Construct unsigned USDC → xStock tx + sign URL."
+    },
+    {
+      "name": "build_sell_xstock_tx",
+      "summary": "Construct unsigned xStock → USDC tx + sign URL."
+    }
+  ],
+  "permissions": {
+    "custody": "none",
+    "signing": "user-only",
+    "kyc": "issuer-side-only",
+    "network": ["mainnet"]
+  },
+  "compliance": {
+    "stablecoinIssuerInterest": "We never custody or issue. The yield path uses Ondo USDY (a registered security under non-US prospectus), not stablecoin issuer interest — unaffected by GENIUS / CLARITY Act restrictions.",
+    "usPersons": "Restricted by issuers (Backed, Ondo). We do not onboard users; users connect their existing wallet."
+  }
+}
