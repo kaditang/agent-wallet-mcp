@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express"
 import { lookupApiKey } from "./auth-store.js"
+import { captureError } from "./sentry.js"
 
 /**
  * Sanitize an error message before returning to the client. Strips file
@@ -19,11 +20,23 @@ export function sanitizeError(e: unknown): string {
   return s.trim() || "internal error"
 }
 
-/** Standard sanitized 500 reply. */
-export function reply500(res: Response, e: unknown) {
+/** Standard sanitized 500 reply. Also pages Sentry if configured. */
+export function reply500(
+  res: Response,
+  e: unknown,
+  ctx?: {
+    route?: string
+    tags?: Record<string, string>
+    extra?: Record<string, unknown>
+  },
+) {
   const msg = sanitizeError(e)
   // Always log full server-side
   console.error("[error]", e)
+  captureError(e, {
+    tags: { ...(ctx?.route ? { route: ctx.route } : {}), ...(ctx?.tags ?? {}) },
+    extra: ctx?.extra,
+  })
   res.status(500).json({ error: msg })
 }
 

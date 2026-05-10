@@ -1,4 +1,8 @@
 import "dotenv/config"
+import { initSentry, flushSentry } from "./sentry.js"
+// Sentry must be initialized before any other module that might throw at
+// import time (and before Express is constructed).
+initSentry()
 import express from "express"
 import cors from "cors"
 import rateLimit from "express-rate-limit"
@@ -506,7 +510,14 @@ app.post("/sign/broadcast", broadcastLimiter, async (req, res) => {
       // 409 errors are user-facing logic, safe to expose verbatim
       res.status(409).json({ error: e.message, reason: e.reason })
     } else {
-      reply500(res, e)
+      // Tag broadcast failures specifically — they're the highest-signal
+      // alert (real money path failed) so they should be triaged separately
+      // from generic 500s.
+      reply500(res, e, {
+        route: "/sign/broadcast",
+        tags: { critical: "true" },
+        extra: { signId: id },
+      })
     }
   }
 })
@@ -554,6 +565,17 @@ app.post("/mcp", buildLimiter, requireAuth, async (req, res) => {
 // for V2 paid-API monetization layer.)
 
 const port = Number(process.env.PORT ?? 3030)
-app.listen(port, () => {
+const server = app.listen(port, () => {
   console.log(`autoyield mcp service listening on :${port}`)
 })
+
+// Graceful shutdown — flush Sentry + audit log before Fly kills us.
+async function shutdown(signal: string) {
+  console.log(`[shutdown] ${signal} received, flushing...`)
+  await flushSentry(2000)
+  server.close(() => process.exit(0))
+  // Hard exit if close() hangs past 5s (existing connections, etc.)
+  setTimeout(() => process.exit(0), 5000).unref()
+}
+process.on("SIGTERM", () => void shutdown("SIGTERM"))
+process.on("SIGINT", () => void shutdown("SIGINT"))

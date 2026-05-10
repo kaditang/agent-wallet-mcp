@@ -61,6 +61,15 @@ Free tier from [Helius](https://helius.dev) is enough for V1:
 
 The pool tries primary first; on transient failures (429, timeouts, 5xx) it falls through to fallbacks, then to the public mainnet-beta + publicnode endpoints.
 
+### Error monitoring (optional)
+
+Set `SENTRY_DSN` to ship server-side errors to Sentry. Disabled by default; no outbound network when unset. Captures 500s and broadcast failures with sanitized context — request bodies, cookies, headers (which can carry api keys) are stripped before send.
+
+```
+SENTRY_DSN=https://<key>@oXXXXXX.ingest.sentry.io/XXXXXX
+SENTRY_RELEASE=<git-sha>            # optional, for release tracking
+```
+
 ## Tool surface
 
 | Tool | Purpose | Signs anything? |

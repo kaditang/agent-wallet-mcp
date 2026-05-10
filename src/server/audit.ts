@@ -62,13 +62,10 @@ function flush() {
   }
 }
 
-// Best-effort flush on shutdown.
+// Best-effort flush on shutdown. flush() is synchronous (appendFileSync),
+// so registering it on SIGTERM/SIGINT directly is enough — handlers fire in
+// registration order, and the central shutdown sequence in server/index.ts
+// owns the actual process.exit after Sentry flush completes.
 process.on("beforeExit", flush)
-process.on("SIGTERM", () => {
-  flush()
-  process.exit(0)
-})
-process.on("SIGINT", () => {
-  flush()
-  process.exit(0)
-})
+process.on("SIGTERM", flush)
+process.on("SIGINT", flush)
