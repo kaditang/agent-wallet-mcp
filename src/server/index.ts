@@ -27,7 +27,7 @@ import {
   getProgramConfigPda,
   Period,
 } from "../sol/squads.js"
-import { PublicKey, Transaction } from "@solana/web3.js"
+import { PublicKey, Transaction, VersionedTransaction } from "@solana/web3.js"
 import { SOL_USDC, XSTOCKS } from "../sol/tokens.js"
 
 const app = express()
@@ -289,21 +289,32 @@ app.post("/sign/broadcast", broadcastLimiter, async (req, res) => {
   }
   try {
     const raw = Buffer.from(signedTxBase64, "base64")
-    const stashedRaw = Buffer.from(stashed.unsignedTxBase64, "base64")
 
-    // VersionedTransaction format: [signatures...][message bytes].
-    // Signatures section length = num_signatures (compact-u16) + 64 * num_signatures.
-    // We compare the message bytes only — those must equal what we built.
-    const msgFromSigned = extractVersionedMessage(raw)
-    const msgFromStashed = extractVersionedMessage(stashedRaw)
-    if (
-      !msgFromSigned ||
-      !msgFromStashed ||
-      !msgFromSigned.equals(msgFromStashed)
-    ) {
+    // Verify the signed tx is FROM the wallet we built for. Phantom legitimately
+    // mutates the message bytes before signing (adds SetComputeUnitPrice /
+    // SetComputeUnitLimit ixs to improve landing odds), so byte-equality vs
+    // the stashed unsigned tx fails. The real anchor is the fee payer:
+    // staticAccountKeys[0] must equal the wallet we stashed. Phantom can't
+    // change that — it's the public key whose private key signs.
+    let signedVtx: VersionedTransaction
+    try {
+      signedVtx = VersionedTransaction.deserialize(raw)
+    } catch {
+      res.status(400).json({ error: "could not deserialize signed tx" })
+      return
+    }
+    const feePayer = signedVtx.message.staticAccountKeys[0]?.toBase58()
+    if (!feePayer || feePayer !== stashed.wallet) {
       res.status(400).json({
-        error: "signed tx message does not match the stashed unsigned tx",
+        error: "signed tx fee payer does not match the stashed wallet",
       })
+      return
+    }
+    if (
+      signedVtx.signatures.length === 0 ||
+      signedVtx.signatures.every((s) => s.every((b) => b === 0))
+    ) {
+      res.status(400).json({ error: "signed tx is missing signatures" })
       return
     }
 
@@ -347,29 +358,6 @@ app.post("/sign/broadcast", broadcastLimiter, async (req, res) => {
     }
   }
 })
-
-// Decode the compact-u16 num_signatures prefix and skip past signatures to
-// reach the message bytes. Returns null if the buffer is malformed.
-function extractVersionedMessage(buf: Buffer): Buffer | null {
-  if (buf.length < 1) return null
-  // compact-u16 decode
-  let offset = 0
-  let len = 0
-  let shift = 0
-  while (offset < buf.length) {
-    const b = buf[offset]
-    offset++
-    len |= (b & 0x7f) << shift
-    if ((b & 0x80) === 0) break
-    shift += 7
-    if (shift > 14) return null
-  }
-  // Skip num_signatures × 64 bytes
-  const sigsLen = len * 64
-  const msgStart = offset + sigsLen
-  if (msgStart > buf.length) return null
-  return buf.subarray(msgStart)
-}
 
 // Public read-only Solana balance lookup. No auth — anyone can query any address.
 app.get("/sol/balances", readLimiter, async (req, res) => {
