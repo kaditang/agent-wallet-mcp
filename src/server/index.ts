@@ -32,6 +32,11 @@ import { SOL_USDC, XSTOCKS } from "../sol/tokens.js"
 
 const app = express()
 
+// Trust the first proxy (Fly's edge). Without this, express-rate-limit
+// refuses to use X-Forwarded-For and all requests appear to come from one
+// internal IP, breaking per-IP rate limiting.
+app.set("trust proxy", 1)
+
 // CORS — open by default but restrictable. Production should set
 // ALLOWED_ORIGINS to a comma-separated list (e.g. "https://autoyield.org").
 const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? "")
