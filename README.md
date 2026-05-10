@@ -41,19 +41,40 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (Claude
 > ```bash
 > git clone https://github.com/kaditang/agent-wallet-mcp.git
 > cd agent-wallet-mcp && npm install
-> npm run mcp:http   # serves on :3030
+> cp .env.example .env   # then fill in SOL_RPC, DEMO_TOKENS
+> npm run mcp:http       # serves on :3030
 > ```
 > Then point your MCP client at `http://localhost:3030/mcp` with a `Authorization: Bearer <your-token>` header (configure tokens in `.env`'s `DEMO_TOKENS`).
+
+### Solana RPC endpoint (recommended)
+
+Public RPCs (`api.mainnet-beta.solana.com`) rate-limit aggressively and reject `getTokenAccountsByOwner` in some cases. For any meaningful traffic you want a paid endpoint as primary; public ones are kept as fallback automatically.
+
+Free tier from [Helius](https://helius.dev) is enough for V1:
+
+1. Sign up → New project → copy the RPC URL (looks like `https://mainnet.helius-rpc.com/?api-key=...`)
+2. Set in `.env`:
+   ```
+   SOL_RPC=https://mainnet.helius-rpc.com/?api-key=YOUR_KEY
+   ```
+3. (Optional) add a second provider as `SOL_RPC_FALLBACK_1` for redundancy.
+
+The pool tries primary first; on transient failures (429, timeouts, 5xx) it falls through to fallbacks, then to the public mainnet-beta + publicnode endpoints.
 
 ## Tool surface
 
 | Tool | Purpose | Signs anything? |
 |------|---------|-----------------|
-| `compare_yields` | Rank USDC lending APY across major chains via DefiLlama. Tags Solana protocols `executable: true`. | No |
+| `compare_yields` | Rank USDC lending APY across major chains (Solana / Ethereum / Base / Arbitrum) via DefiLlama. Solana protocols are tagged `executable: true`. | No |
+| `list_yield_tokens` | List supported tokenized treasuries (USDY by Ondo). | No |
+| `list_xstocks` | List supported tokenized US equities (Backed xStocks). | No |
 | `quote_tokenized_stock` | Live Jupiter quote for USDC → xStock (price, route, slippage). | No |
-| `build_buy_xstock_tx` | Build an unsigned Solana versioned transaction. Returns base64 + a one-click sign URL. | **No** — user signs in their wallet. |
 | `get_portfolio` | Snapshot a wallet: SOL, USDC, xStocks valued via Jupiter. | No |
 | `track_tx` | Lookup confirmation status for a Solana signature. | No |
+| `build_deposit_yield_tx` | Build unsigned USDC → USDY tx + one-click sign URL. | **No** — user signs in Phantom. |
+| `build_withdraw_yield_tx` | Build unsigned USDY → USDC tx + sign URL. | **No** |
+| `build_buy_xstock_tx` | Build unsigned USDC → xStock tx + sign URL. | **No** |
+| `build_sell_xstock_tx` | Build unsigned xStock → USDC tx + sign URL. | **No** |
 
 ## Architecture
 

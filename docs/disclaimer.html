@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Disclaimer · autoyield</title>
+    <style>
+      :root { --bg: #0e0e10; --surface: #18181b; --border: #2a2a30;
+        --text: #fafafa; --muted: #9ca3af; --accent: #6638e8;
+        --warn: #f59e0b; }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+        background: var(--bg); color: var(--text); line-height: 1.6; }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 4rem 1.5rem; }
+      a { color: var(--accent); }
+      h1 { font-size: 2rem; margin-bottom: 0.5rem; }
+      h2 { font-size: 1.2rem; margin-top: 2rem; margin-bottom: 0.5rem; }
+      p, li { color: #d4d4d8; margin-bottom: 0.75rem; }
+      ul { padding-left: 1.5rem; }
+      .meta { color: var(--muted); font-size: 0.9rem; margin-bottom: 2rem; }
+      .nav { color: var(--muted); font-size: 0.9rem; margin-bottom: 2rem; }
+      .nav a { margin-right: 1rem; }
+      footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border);
+        color: var(--muted); font-size: 0.85rem; }
+      .warn { background: rgba(245,158,11,0.1); border: 1px solid var(--warn);
+        border-radius: 8px; padding: 1rem 1.25rem; margin: 1rem 0; }
+      .warn strong { color: var(--warn); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <p class="nav">
+        <a href="/">← autoyield</a>
+        <a href="/terms.html">Terms</a>
+        <a href="/privacy.html">Privacy</a>
+        <a href="/disclaimer.html">Disclaimer</a>
+      </p>
+
+      <h1>Disclaimer</h1>
+      <p class="meta">Last updated: 2026-05-10</p>
+
+      <div class="warn">
+        <strong>Read this before using autoyield with real money.</strong>
+        It is pre-alpha software, with limited testing, on a moving target
+        (third-party protocols change without notice). The authors take no
+        responsibility for losses.
+      </div>
+
+      <h2>Not investment advice</h2>
+      <p>
+        Nothing on autoyield.org, in the autoyield MCP server, in
+        AI-generated responses that use this MCP, or in linked materials
+        constitutes investment, legal, accounting, or tax advice. Yields
+        shown are protocol-reported snapshots that change in real time.
+        Past performance does not predict future results.
+      </p>
+
+      <h2>Tokenized assets carry issuer risk</h2>
+      <ul>
+        <li>
+          <b>Backed xStocks (NVDAx, AAPLx, TSLAx, SPYx):</b> 1:1 backed
+          tokens issued by Backed Assets (JE) Limited under an EU prospectus.
+          They are securities, not stablecoins. They are not available to
+          U.S. persons. Read the
+          <a href="https://backed.fi" target="_blank" rel="noopener">issuer's documentation</a>
+          before holding.
+        </li>
+        <li>
+          <b>Ondo USDY:</b> A tokenized US Treasury exposure issued by
+          Ondo USDY LLC. It is a security, not a stablecoin. Each share
+          accrues yield and trades at a price that grows over time
+          (so 1 USDC ≠ 1 USDY). Not available to U.S. persons. Read the
+          <a href="https://ondo.finance/usdy" target="_blank" rel="noopener">issuer's documentation</a>.
+        </li>
+      </ul>
+
+      <h2>Smart contract and protocol risk</h2>
+      <p>
+        Transactions constructed by autoyield interact with third-party
+        Solana programs (Jupiter, Raydium, Orca, Meteora, the issuer's
+        own programs). These programs may have undiscovered bugs, may be
+        upgraded in ways that change behavior, or may be exploited.
+      </p>
+
+      <h2>Network and execution risk</h2>
+      <ul>
+        <li>Solana network congestion can cause transactions to fail (we set
+          conservative priority fees but cannot guarantee inclusion).</li>
+        <li>RPC endpoints can return stale or incorrect data.</li>
+        <li>Liquidity in tokenized-asset pools is often shallow; small trades
+          can move price meaningfully.</li>
+        <li>MEV bots can extract value from your trade.</li>
+      </ul>
+
+      <h2>Slippage and price risk</h2>
+      <p>
+        autoyield enforces a default 0.5% slippage cap (hard ceiling 1%).
+        Even within these bounds, the price you receive can be worse than
+        the displayed quote, especially in volatile markets.
+      </p>
+
+      <h2>Tax</h2>
+      <p>
+        Crypto transactions, including swaps between USDC and tokenized
+        securities, may be taxable events in your jurisdiction. autoyield
+        does not generate tax forms. You are responsible for your own
+        records.
+      </p>
+
+      <h2>Limit your exposure</h2>
+      <p>
+        Only use amounts you can afford to lose entirely. Test with the
+        smallest possible amount before scaling up. Keep your seed phrase
+        offline. Revoke unused token approvals.
+      </p>
+
+      <footer>
+        © 2026 autoyield contributors · MIT License · Not investment advice.
+      </footer>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Terms of Service · autoyield</title>
+    <style>
+      :root {
+        --bg: #0e0e10; --surface: #18181b; --border: #2a2a30;
+        --text: #fafafa; --muted: #9ca3af; --accent: #6638e8;
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+        background: var(--bg); color: var(--text); line-height: 1.6; }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 4rem 1.5rem; }
+      a { color: var(--accent); }
+      h1 { font-size: 2rem; margin-bottom: 0.5rem; }
+      h2 { font-size: 1.2rem; margin-top: 2rem; margin-bottom: 0.5rem; color: var(--text); }
+      p, li { color: #d4d4d8; margin-bottom: 0.75rem; }
+      ul { padding-left: 1.5rem; }
+      .meta { color: var(--muted); font-size: 0.9rem; margin-bottom: 2rem; }
+      .nav { color: var(--muted); font-size: 0.9rem; margin-bottom: 2rem; }
+      .nav a { margin-right: 1rem; }
+      footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border);
+        color: var(--muted); font-size: 0.85rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <p class="nav">
+        <a href="/">← autoyield</a>
+        <a href="/terms.html">Terms</a>
+        <a href="/privacy.html">Privacy</a>
+        <a href="/disclaimer.html">Disclaimer</a>
+      </p>
+
+      <h1>Terms of Service</h1>
+      <p class="meta">Last updated: 2026-05-10</p>
+
+      <h2>1. What autoyield is</h2>
+      <p>
+        autoyield (the "Service") is an open-source software service that
+        helps Model Context Protocol (MCP) clients — such as Claude or
+        Cursor — construct unsigned Solana transactions for use with
+        third-party protocols (Jupiter aggregator, Backed xStocks, Ondo
+        Finance USDY, and similar). The Service does not custody funds,
+        does not sign transactions, and does not act as a broker, dealer,
+        exchange, money transmitter, or investment adviser.
+      </p>
+
+      <h2>2. Self-custody and signing</h2>
+      <p>
+        You are solely responsible for your own wallet, private keys, seed
+        phrase, signed transactions, and assets. The Service may construct
+        transactions for you to review and sign in your own wallet, but the
+        Service never holds your keys or funds. If you lose your seed
+        phrase, your wallet, or your access, the Service cannot recover
+        them.
+      </p>
+
+      <h2>3. No advice</h2>
+      <p>
+        Nothing the Service produces — including price quotes, yield
+        comparisons, transaction proposals, or natural-language responses
+        from any AI client connected via MCP — constitutes investment,
+        legal, tax, or financial advice. You should consult a qualified
+        professional before making any financial decision.
+      </p>
+
+      <h2>4. Eligibility and geographic restrictions</h2>
+      <p>
+        You represent and warrant that:
+      </p>
+      <ul>
+        <li>You are at least 18 years old.</li>
+        <li>You are not a U.S. person, U.S. resident, or located in the United States. The tokenized US equities and tokenized treasuries that the Service references (e.g., Backed xStocks, Ondo USDY) are issued under non-U.S. prospectuses by their respective issuers and are not available to U.S. persons. The Service does not perform KYC; you are responsible for confirming your eligibility with each underlying issuer.</li>
+        <li>You are not located in any jurisdiction subject to U.S. OFAC sanctions, including but not limited to Cuba, Iran, North Korea, Syria, the Crimea/Donetsk/Luhansk regions of Ukraine, or any other comprehensively sanctioned territory.</li>
+        <li>You are not on any sanctions list maintained by OFAC, the United Nations, the European Union, or HM Treasury (UK).</li>
+      </ul>
+
+      <h2>5. Third-party protocols</h2>
+      <p>
+        Transactions constructed by the Service are submitted to and
+        executed by third-party programs on the Solana blockchain (Jupiter,
+        Raydium, Orca, Meteora, Backed Finance, Ondo Finance, and others).
+        The Service has no control over those programs, their availability,
+        their pricing, their security, or their regulatory status. You
+        accept all risk associated with using them.
+      </p>
+
+      <h2>6. Risk</h2>
+      <p>
+        Using the Service involves substantial risk, including but not
+        limited to: total loss of capital, smart contract bugs, oracle
+        failures, blockchain network outages, RPC outages, MEV/sandwich
+        attacks, slippage, depegging, regulatory action against underlying
+        issuers, and changes to the Service itself. The Service is provided
+        on an "AS IS" and "AS AVAILABLE" basis with no warranties of any
+        kind.
+      </p>
+
+      <h2>7. Disclaimer of warranties; limitation of liability</h2>
+      <p>
+        TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE SERVICE AND ITS
+        AUTHORS DISCLAIM ALL WARRANTIES, EXPRESS OR IMPLIED, INCLUDING
+        WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE,
+        AND NON-INFRINGEMENT. IN NO EVENT WILL THE AUTHORS BE LIABLE FOR
+        ANY DIRECT, INDIRECT, INCIDENTAL, CONSEQUENTIAL, SPECIAL, OR
+        EXEMPLARY DAMAGES, OR LOST PROFITS, ARISING FROM YOUR USE OF THE
+        SERVICE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES. THE
+        AUTHORS' TOTAL LIABILITY UNDER THESE TERMS WILL NOT EXCEED ONE
+        HUNDRED U.S. DOLLARS (USD 100).
+      </p>
+
+      <h2>8. Open source</h2>
+      <p>
+        The Service is released under the MIT License. You can read the
+        source, audit the behavior, and self-host the Service. The MIT
+        License's "AS IS" disclaimer governs your use of the source code.
+      </p>
+
+      <h2>9. Changes</h2>
+      <p>
+        These Terms may change. Material changes will be reflected by
+        updating the "Last updated" date above. Continued use of the
+        Service after changes means you accept the new Terms.
+      </p>
+
+      <h2>10. Contact</h2>
+      <p>
+        Open an issue at
+        <a href="https://github.com/kaditang/agent-wallet-mcp/issues">github.com/kaditang/agent-wallet-mcp/issues</a>.
+      </p>
+
+      <footer>
+        © 2026 autoyield contributors · MIT License · Not investment advice.
+      </footer>
+    </div>
+  </body>
+</html>

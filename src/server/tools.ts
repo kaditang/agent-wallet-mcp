@@ -7,6 +7,7 @@ import { findXStock, SOL_USDC, XSTOCKS } from "../sol/tokens.js"
 import { jupiterQuote, jupiterSwapTx } from "../sol/jupiter.js"
 import { compareYields } from "../sol/yields.js"
 import { stashSignableTx, getSignBaseUrl } from "../sol/sign-store.js"
+import { audit } from "./audit.js"
 import { getPortfolio } from "../sol/portfolio.js"
 import { YIELD_TOKENS, findYieldToken } from "../sol/yield-tokens.js"
 import { solConn } from "../sol/connection.js"
@@ -514,6 +515,15 @@ async function buildSwapAndStash(opts: {
       amountInHuman: opts.amountInHuman,
       slippageBps, // already clamped
     },
+  })
+  audit({
+    kind: "build_tx",
+    signId,
+    wallet: opts.wallet,
+    txKind: opts.kind,
+    amount: inHuman,
+    symbol: opts.symbol ?? opts.outputSymbol,
+    extra: { expectedOut, slippageBps },
   })
   const signUrl = `${getSignBaseUrl()}/sign.html?id=${signId}`
 

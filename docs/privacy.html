@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Privacy Policy · autoyield</title>
+    <style>
+      :root { --bg: #0e0e10; --surface: #18181b; --border: #2a2a30;
+        --text: #fafafa; --muted: #9ca3af; --accent: #6638e8; }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+        background: var(--bg); color: var(--text); line-height: 1.6; }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 4rem 1.5rem; }
+      a { color: var(--accent); }
+      h1 { font-size: 2rem; margin-bottom: 0.5rem; }
+      h2 { font-size: 1.2rem; margin-top: 2rem; margin-bottom: 0.5rem; }
+      p, li { color: #d4d4d8; margin-bottom: 0.75rem; }
+      ul { padding-left: 1.5rem; }
+      .meta { color: var(--muted); font-size: 0.9rem; margin-bottom: 2rem; }
+      .nav { color: var(--muted); font-size: 0.9rem; margin-bottom: 2rem; }
+      .nav a { margin-right: 1rem; }
+      footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border);
+        color: var(--muted); font-size: 0.85rem; }
+      code { background: var(--surface); padding: 0.1rem 0.4rem; border-radius: 4px;
+        font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.9em; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <p class="nav">
+        <a href="/">← autoyield</a>
+        <a href="/terms.html">Terms</a>
+        <a href="/privacy.html">Privacy</a>
+        <a href="/disclaimer.html">Disclaimer</a>
+      </p>
+
+      <h1>Privacy Policy</h1>
+      <p class="meta">Last updated: 2026-05-10</p>
+
+      <h2>What we collect</h2>
+      <p>
+        autoyield is a thin service layer. We collect the minimum needed
+        for it to function:
+      </p>
+      <ul>
+        <li><b>Solana wallet addresses</b> you pass to our tools (e.g., as the
+          <code>wallet</code> argument). These are public on-chain identifiers.</li>
+        <li><b>Bearer tokens</b> if you self-host and configure them. Used only
+          for authentication; never logged with their value.</li>
+        <li><b>Unsigned transactions</b> we construct on your behalf are stashed
+          temporarily for up to 24 hours (in the <code>data/sign-store.json</code>
+          file on the host) so the sign page can refetch and rebuild them.</li>
+        <li><b>Server logs</b> include endpoint paths, IP addresses (for
+          rate-limiting), and error messages. Logs are retained per the host's
+          configuration; on the canonical autoyield.org deployment, that is
+          ≤ 7 days unless required for security incident response.</li>
+      </ul>
+
+      <h2>What we do NOT collect</h2>
+      <ul>
+        <li>Your private keys, seed phrase, or signed transactions (you sign in
+          your own wallet; the signed bytes pass through us only as a base64
+          payload during broadcast).</li>
+        <li>Email addresses, names, phone numbers, or other personally
+          identifying information. We do not run accounts.</li>
+        <li>Cookies. We do not set first-party cookies.</li>
+        <li>Third-party analytics (Google Analytics, Mixpanel, etc.).</li>
+      </ul>
+
+      <h2>Where data goes</h2>
+      <p>
+        Your wallet address is shared with public Solana RPC providers and
+        with Jupiter (for quote and swap construction). It is also written
+        to the public Solana blockchain when you sign and broadcast a
+        transaction. None of this is something autoyield can prevent — it
+        is inherent to how a public blockchain works.
+      </p>
+
+      <h2>Self-hosting</h2>
+      <p>
+        autoyield is open source under the MIT License. You can run your
+        own instance with no external data flow other than to the RPCs and
+        third-party APIs you configure. See the GitHub repo for details.
+      </p>
+
+      <h2>Children</h2>
+      <p>
+        The Service is not directed to children under 18. Do not use it
+        if you are under 18.
+      </p>
+
+      <h2>Changes</h2>
+      <p>
+        Material changes are reflected in the "Last updated" date.
+      </p>
+
+      <h2>Contact</h2>
+      <p>
+        <a href="https://github.com/kaditang/agent-wallet-mcp/issues">
+          github.com/kaditang/agent-wallet-mcp/issues
+        </a>
+      </p>
+
+      <footer>
+        © 2026 autoyield contributors · MIT License
+      </footer>
+    </div>
+  </body>
+</html>

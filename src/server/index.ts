@@ -10,6 +10,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js"
 import { z } from "zod"
 import { requireAuth, reply500 } from "./auth.js"
+import { audit } from "./audit.js"
 import { dispatch as toolDispatch, getToolList } from "./tools.js"
 import { getBalances } from "../sol/balances.js"
 import {
@@ -285,6 +286,15 @@ app.post("/sign/broadcast", broadcastLimiter, async (req, res) => {
       return
     }
 
+    audit({
+      kind: "broadcast_attempt",
+      ip: req.ip,
+      signId: id,
+      wallet: stashed.wallet,
+      txKind: stashed.kind,
+      amount: stashed.amountUsdc,
+      symbol: stashed.symbol,
+    })
     // Lock per id — second submission for the same id immediately rejects.
     const sig = await withBroadcastLock(id, async () =>
       withRpcFallback((c) =>
@@ -292,9 +302,22 @@ app.post("/sign/broadcast", broadcastLimiter, async (req, res) => {
       ),
     )
     recordSignature(id, sig)
+    audit({
+      kind: "broadcast_success",
+      ip: req.ip,
+      signId: id,
+      wallet: stashed.wallet,
+      signature: sig,
+    })
     res.json({ signature: sig, solscanUrl: `https://solscan.io/tx/${sig}` })
   } catch (e) {
     const raw = (e as Error).message ?? ""
+    audit({
+      kind: "broadcast_failure",
+      ip: req.ip,
+      signId: id,
+      error: raw.slice(0, 200),
+    })
     if (/already broadcast|already in flight/i.test(raw)) {
       // 409 errors are user-facing logic, safe to expose verbatim
       res.status(409).json({ error: raw })
