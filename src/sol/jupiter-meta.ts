@@ -8,6 +8,7 @@ const TTL_MS = 5 * 60 * 1000
 type CacheEntry = {
   liquidityUsd: number
   isVerified: boolean
+  usdPrice: number | null
   fetchedAt: number
 }
 
@@ -17,6 +18,7 @@ export type LiveTokenMeta = {
   mint: string
   liquidityUsd: number
   isVerified: boolean
+  usdPrice: number | null
   cached: boolean
   staleMs: number
 }
@@ -28,6 +30,7 @@ export async function getLiveTokenMeta(mint: string): Promise<LiveTokenMeta> {
       mint,
       liquidityUsd: hit.liquidityUsd,
       isVerified: hit.isVerified,
+      usdPrice: hit.usdPrice,
       cached: true,
       staleMs: Date.now() - hit.fetchedAt,
     }
@@ -41,11 +44,13 @@ export async function getLiveTokenMeta(mint: string): Promise<LiveTokenMeta> {
       id: string
       liquidity?: number
       isVerified?: boolean
+      usdPrice?: number | null
     }>
     const found = arr.find((t) => t.id === mint)
     const entry: CacheEntry = {
       liquidityUsd: Number(found?.liquidity ?? 0),
       isVerified: !!found?.isVerified,
+      usdPrice: typeof found?.usdPrice === "number" ? found.usdPrice : null,
       fetchedAt: Date.now(),
     }
     cache.set(mint, entry)
@@ -53,6 +58,7 @@ export async function getLiveTokenMeta(mint: string): Promise<LiveTokenMeta> {
       mint,
       liquidityUsd: entry.liquidityUsd,
       isVerified: entry.isVerified,
+      usdPrice: entry.usdPrice,
       cached: false,
       staleMs: 0,
     }
@@ -63,11 +69,19 @@ export async function getLiveTokenMeta(mint: string): Promise<LiveTokenMeta> {
         mint,
         liquidityUsd: hit.liquidityUsd,
         isVerified: hit.isVerified,
+        usdPrice: hit.usdPrice,
         cached: true,
         staleMs: Date.now() - hit.fetchedAt,
       }
     }
     // No data at all — return zeros so callers can detect.
-    return { mint, liquidityUsd: 0, isVerified: false, cached: false, staleMs: 0 }
+    return {
+      mint,
+      liquidityUsd: 0,
+      isVerified: false,
+      usdPrice: null,
+      cached: false,
+      staleMs: 0,
+    }
   }
 }

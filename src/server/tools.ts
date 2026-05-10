@@ -45,8 +45,24 @@ const TOOLS = [
   {
     name: "list_xstocks",
     description:
-      "List supported tokenized US equities (Backed xStocks: NVDAx, AAPLx, TSLAx, SPYx) with mint addresses and approximate liquidity. For non-US holders.",
-    inputSchema: { type: "object", properties: {} },
+      "List supported tokenized US equities (Backed xStocks). 16 tickers across mega-cap-tech (NVDA/AAPL/TSLA/MSFT/GOOGL/AMZN/META), crypto-equity (COIN/MSTR/HOOD/CRCL), broad-market-etf (SPY/QQQ), commodity-etf (GLD), consumer (MCD), ai-defense (PLTR). Includes live Jupiter liquidity + USD price. For non-US holders only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        category: {
+          type: "string",
+          enum: [
+            "mega-cap-tech",
+            "crypto-equity",
+            "broad-market-etf",
+            "commodity-etf",
+            "consumer",
+            "ai-defense",
+          ],
+          description: "Optional category filter; omit to return all 16",
+        },
+      },
+    },
   },
   {
     name: "quote_tokenized_stock",
@@ -170,18 +186,34 @@ export async function dispatch({
   }
 
   if (name === "list_xstocks") {
-    // Enrich each entry with live Jupiter liquidity + verified flag (cached 5min).
-    const stocks = Object.values(XSTOCKS)
+    const { category } = z
+      .object({ category: z.string().optional() })
+      .parse(args ?? {})
+    // Enrich each entry with live Jupiter liquidity + price (cached 5 min).
+    const stocks = Object.values(XSTOCKS).filter(
+      (s) => !category || s.category === category,
+    )
     const live = await Promise.all(
       stocks.map((s) => getLiveTokenMeta(s.mint).catch(() => null)),
     )
     const enriched = stocks.map((s, i) => ({
       ...s,
       liveLiquidityUsd: live[i]?.liquidityUsd ?? null,
+      livePriceUsd: live[i]?.usdPrice ?? null,
       isVerified: live[i]?.isVerified ?? null,
-      // Keep the static `liquidityUsd` field as a registry-baseline reference.
     }))
-    return text(JSON.stringify({ xstocks: enriched }, null, 2))
+    return text(
+      JSON.stringify(
+        {
+          totalAvailable: Object.keys(XSTOCKS).length,
+          returned: enriched.length,
+          ...(category ? { filteredBy: category } : {}),
+          xstocks: enriched,
+        },
+        null,
+        2,
+      ),
+    )
   }
 
   if (name === "quote_tokenized_stock") {
