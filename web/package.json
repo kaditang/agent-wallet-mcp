@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "build:gh-pages": "vite build && cp dist/sign.html ../docs/sign.html && cp dist/solana.html ../docs/solana.html && cp dist/account.html ../docs/account.html && rm -rf ../docs/assets && cp -r dist/assets ../docs/assets"
+    "build:gh-pages": "vite build && cp dist/sign.html ../docs/sign.html && cp dist/account.html ../docs/account.html && rm -rf ../docs/assets && cp -r dist/assets ../docs/assets"
   },
   "dependencies": {
     "@solana/web3.js": "^1.98.4",

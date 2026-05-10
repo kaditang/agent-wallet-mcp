@@ -15,26 +15,37 @@ let initialized = false
 export function initSentry(): void {
   const dsn = process.env.SENTRY_DSN
   if (!dsn) return
-  Sentry.init({
-    dsn,
-    environment: process.env.NODE_ENV ?? "development",
-    release: process.env.SENTRY_RELEASE, // optional; set via CI/Fly env if desired
-    tracesSampleRate: 0, // we only care about errors for now, not perf traces
-    // Strip request bodies / cookies / headers — our requests can carry api
-    // keys (Authorization: ak_*) and signed-tx blobs we don't want shipped off.
-    sendDefaultPii: false,
-    beforeSend(event) {
-      if (event.request) {
-        delete event.request.cookies
-        delete event.request.headers
-        delete event.request.data
-        delete event.request.query_string
-      }
-      return event
-    },
-  })
-  initialized = true
-  console.log("[sentry] initialized")
+  // Sentry.init can throw on a malformed DSN (typo, missing project id,
+  // whitespace). Without this guard a bad env var crashes the entire
+  // service at boot — Sentry would silently lose our error monitoring AND
+  // take down /healthz with it. Boot must succeed even if Sentry is
+  // unhappy; we'd rather run uninstrumented than not run.
+  try {
+    Sentry.init({
+      dsn,
+      environment: process.env.NODE_ENV ?? "development",
+      release: process.env.SENTRY_RELEASE, // optional; set via CI/Fly env if desired
+      tracesSampleRate: 0, // we only care about errors for now, not perf traces
+      // Strip request bodies / cookies / headers — our requests can carry api
+      // keys (Authorization: ak_*) and signed-tx blobs we don't want shipped off.
+      sendDefaultPii: false,
+      beforeSend(event) {
+        if (event.request) {
+          delete event.request.cookies
+          delete event.request.headers
+          delete event.request.data
+          delete event.request.query_string
+        }
+        return event
+      },
+    })
+    initialized = true
+    console.log("[sentry] initialized")
+  } catch (e) {
+    console.warn(
+      `[sentry] init failed (continuing uninstrumented): ${(e as Error).message}`,
+    )
+  }
 }
 
 export function captureError(

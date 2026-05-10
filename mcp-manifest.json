@@ -23,13 +23,7 @@
     "phantom",
     "jupiter"
   ],
-  "icon": "./assets/icon.png",
-  "screenshots": [
-    "./assets/screenshot-list-yields.png",
-    "./assets/screenshot-buy-nvdax.png",
-    "./assets/screenshot-sign-page.png",
-    "./assets/screenshot-portfolio.png"
-  ],
+  "icon": "https://autoyield.org/og.png",
   "transports": ["stdio", "http"],
   "install": {
     "stdio": {

@@ -27,8 +27,7 @@
   "files": [
     "dist",
     "README.md",
-    "mcp-manifest.json",
-    "assets"
+    "mcp-manifest.json"
   ],
   "scripts": {
     "mcp:http": "tsx src/server/index.ts",

@@ -6,9 +6,22 @@ on:
     branches:
       - main
 jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm ci
+      - run: npm test
+
   deploy:
     name: Deploy app
     runs-on: ubuntu-latest
+    needs: test          # block deploy on a red test run
     concurrency: deploy-group    # optional: ensure only one action runs at a time
     steps:
       - uses: actions/checkout@v4
