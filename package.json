@@ -18,7 +18,7 @@
     "yield",
     "defi"
   ],
-  "homepage": "https://github.com/kaditang/agent-wallet-mcp",
+  "homepage": "https://autoyield.org",
   "license": "MIT",
   "main": "dist/server/index.js",
   "bin": {

@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>autoyield · non-custodial RWA service for AI agents</title>
+    <meta
+      name="description"
+      content="Connect this MCP and your AI manages your idle USDC: yield routing + tokenized US stocks + Ondo USDY treasuries. Funds stay in your Phantom wallet."
+    />
+    <meta property="og:title" content="autoyield" />
+    <meta
+      property="og:description"
+      content="Non-custodial RWA + yield service for AI agents on Solana."
+    />
+    <style>
+      :root {
+        --bg: #0e0e10;
+        --surface: #18181b;
+        --border: #2a2a30;
+        --text: #fafafa;
+        --muted: #9ca3af;
+        --accent: #6638e8;
+        --ok: #22c55e;
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.6;
+      }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 4rem 1.5rem; }
+      header { margin-bottom: 3rem; }
+      h1 {
+        font-size: 2.25rem;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        margin-bottom: 0.75rem;
+      }
+      h1 .accent { color: var(--accent); }
+      .tagline { color: var(--muted); font-size: 1.1rem; }
+      h2 { font-size: 1.25rem; margin-top: 2.5rem; margin-bottom: 0.75rem; }
+      p { color: #d4d4d8; margin-bottom: 0.75rem; }
+      a { color: var(--accent); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      pre {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 1rem 1.25rem;
+        overflow-x: auto;
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        font-size: 0.9rem;
+        margin: 0.5rem 0 1.5rem;
+      }
+      .badges { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 1rem 0 0; }
+      .badge {
+        display: inline-block;
+        padding: 0.25rem 0.6rem;
+        border-radius: 999px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+      ul { color: #d4d4d8; padding-left: 1.25rem; }
+      li { margin-bottom: 0.4rem; }
+      footer {
+        margin-top: 4rem;
+        padding-top: 2rem;
+        border-top: 1px solid var(--border);
+        color: var(--muted);
+        font-size: 0.85rem;
+      }
+      .cta {
+        display: inline-block;
+        background: var(--accent);
+        color: white;
+        padding: 0.6rem 1rem;
+        border-radius: 8px;
+        font-weight: 600;
+        text-decoration: none !important;
+        margin-right: 0.5rem;
+      }
+      .ok-dot {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        background: var(--ok);
+        border-radius: 50%;
+        margin-right: 0.4rem;
+        vertical-align: middle;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>auto<span class="accent">yield</span></h1>
+        <p class="tagline">
+          Non-custodial RWA + yield service for AI agents on Solana.
+        </p>
+        <div class="badges">
+          <span class="badge"><span class="ok-dot"></span>Solana mainnet</span>
+          <span class="badge">MCP-native</span>
+          <span class="badge">Funds in your wallet</span>
+        </div>
+      </header>
+
+      <p>
+        Connect this MCP to <b>Claude</b>, <b>Cursor</b>, or any MCP-compatible
+        AI. Your AI can then compare on-chain yields, quote tokenized US
+        equities, and build ready-to-sign transactions.
+        You sign every action in your own Phantom wallet — we never custody.
+      </p>
+
+      <h2>What it does</h2>
+      <ul>
+        <li>Compare USDC lending APY across Solana / Ethereum / Base / Arbitrum</li>
+        <li>Buy / sell Backed xStocks (NVDAx, AAPLx, TSLAx, SPYx) via Jupiter</li>
+        <li>Deposit USDC into Ondo USDY tokenized treasuries (~4-5% APY)</li>
+        <li>Snapshot any wallet's portfolio with live USD valuations</li>
+      </ul>
+
+      <h2>Install</h2>
+      <p>Add to <code>~/Library/Application Support/Claude/claude_desktop_config.json</code>:</p>
+      <pre>{
+  "mcpServers": {
+    "autoyield": {
+      "command": "npx",
+      "args": ["-y", "@kaditang/agent-wallet-mcp"]
+    }
+  }
+}</pre>
+
+      <h2>Why this exists</h2>
+      <p>
+        Tokenized US treasuries (Ondo USDY, BlackRock BUIDL) and tokenized
+        equities (Backed xStocks) became the fastest-growing RWA category in
+        2026. After the GENIUS / CLARITY Acts restricted stablecoin issuer
+        interest, the cleanest yield path is direct ownership of these
+        securities — but the infrastructure has been built for traders, not
+        AI agents. <b>autoyield</b> wraps the boring-but-correct execution in
+        a service your AI can drive.
+      </p>
+
+      <h2>Try it</h2>
+      <p>
+        <a class="cta" href="https://github.com/kaditang/agent-wallet-mcp">GitHub →</a>
+        <a class="cta" href="https://github.com/kaditang/agent-wallet-mcp#install">Install in Claude →</a>
+      </p>
+
+      <footer>
+        Pre-alpha. Open source (MIT). Built by
+        <a href="https://github.com/kaditang">@kaditang</a>.
+        <br />
+        Not investment advice. Tokenized US equities are issued under non-US
+        prospectuses; we do not onboard or KYC users.
+      </footer>
+    </div>
+  </body>
+</html>
