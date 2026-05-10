@@ -264,6 +264,8 @@ function renderCard(tx: any): string {
 }
 
 function formatAmount(n: number): string {
+  // Defensive: never display NaN/Infinity to the user.
+  if (!Number.isFinite(n)) return "?"
   // Trim trailing zeros: 0.881736 → "0.881736", 2 → "2", 0.00921674 → "0.00921674"
   if (Number.isInteger(n)) return String(n)
   // Up to 6 decimals, strip trailing zeros.

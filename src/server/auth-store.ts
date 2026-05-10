@@ -17,6 +17,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import { createHash, randomBytes, randomUUID } from "node:crypto"
+import { audit } from "./audit.js"
 
 const STORE_PATH = process.env.AUTH_STORE_PATH ?? "data/api-keys.json"
 const NONCE_TTL_MS = 5 * 60 * 1000
@@ -121,10 +122,23 @@ export function mintApiKey(pubkey: string, label?: string): string {
   const ownedHashes = Object.entries(store.keys)
     .filter(([, rec]) => rec.pubkey === pubkey)
     .sort((a, b) => a[1].createdAt - b[1].createdAt) // oldest first
+  let evictedCount = 0
   while (ownedHashes.length >= MAX_KEYS_PER_PUBKEY) {
-    const [oldestHash] = ownedHashes.shift()!
+    const [oldestHash, oldestRec] = ownedHashes.shift()!
     delete store.keys[oldestHash]
+    evictedCount++
+    audit({
+      kind: "api_key_evicted",
+      wallet: pubkey,
+      extra: {
+        reason: "lru_cap",
+        cap: MAX_KEYS_PER_PUBKEY,
+        evictedCreatedAt: oldestRec.createdAt,
+        evictedLabel: oldestRec.label,
+      },
+    })
   }
+  void evictedCount
   // 32 bytes -> 64 hex chars. Prefix with "ak_" for visual identification.
   const apiKey = "ak_" + randomBytes(32).toString("hex")
   const hash = sha256Hex(apiKey)

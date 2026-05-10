@@ -20,6 +20,7 @@ export type AuditEvent = {
     | "rate_limit"
     | "api_key_minted"
     | "api_key_revoked"
+    | "api_key_evicted"
     | "client_register"
   ip?: string
   wallet?: string
