@@ -3,6 +3,16 @@
 // Flow: connect Phantom -> POST /auth/challenge -> signMessage in Phantom ->
 // POST /auth/verify with {pubkey, nonce, signatureBase64} -> show api key.
 
+// Frame-busting: refuse to render inside an iframe (clickjacking defense).
+if (window.top !== window.self) {
+  try {
+    window.top!.location.replace(window.location.href)
+  } catch {
+    document.documentElement.innerHTML = ""
+  }
+  throw new Error("framed")
+}
+
 const DEFAULT_API =
   window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
     ? "http://localhost:3030"
@@ -24,7 +34,17 @@ if (!ALLOWED_HOSTS.has(location.hostname)) {
   throw new Error("blocked")
 }
 
-const apiBase = (new URLSearchParams(location.search).get("api") ?? DEFAULT_API).replace(/\/$/, "")
+// SECURITY: refuse `?api=` override on production hosts. Same phishing
+// concern as sign-main: an attacker-supplied backend would issue its own
+// nonce, capture the user's signature, then... actually a replay against
+// the real backend would fail (different nonce). But it pollutes UX and
+// has no legitimate prod use. Keep it on localhost for dev only.
+const isLocalhost =
+  location.hostname === "localhost" || location.hostname === "127.0.0.1"
+const apiOverride = isLocalhost
+  ? new URLSearchParams(location.search).get("api")
+  : null
+const apiBase = (apiOverride ?? DEFAULT_API).replace(/\/$/, "")
 
 const btn = document.getElementById("signin") as HTMLButtonElement
 const statusEl = document.getElementById("status") as HTMLDivElement

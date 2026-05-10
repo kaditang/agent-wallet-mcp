@@ -82,20 +82,21 @@ const broadcastLimiter = rateLimit({
 // one Solana RPC endpoint responds. Exposed without auth or rate limit.
 app.get("/healthz", async (_req, res) => {
   const start = Date.now()
+  const detailed = process.env.NODE_ENV !== "production"
   try {
     const slot = await withRpcFallback((c) => c.getSlot())
-    res.json({
-      ok: true,
-      slot,
-      rpcLatencyMs: Date.now() - start,
-      uptimeSec: Math.floor(process.uptime()),
-    })
+    res.json(
+      detailed
+        ? {
+            ok: true,
+            slot,
+            rpcLatencyMs: Date.now() - start,
+            uptimeSec: Math.floor(process.uptime()),
+          }
+        : { ok: true },
+    )
   } catch (e) {
-    res.status(503).json({
-      ok: false,
-      error: "no Solana RPC reachable",
-      rpcLatencyMs: Date.now() - start,
-    })
+    res.status(503).json({ ok: false, error: "no Solana RPC reachable" })
   }
 })
 
@@ -148,6 +149,7 @@ app.post("/auth/verify", buildLimiter, (req, res) => {
     pubkeyBytes,
   )
   if (!ok) {
+    audit({ kind: "auth_fail", ip: req.ip, wallet: pubkey, error: "sig_verify" })
     res.status(401).json({ error: "signature does not verify" })
     return
   }

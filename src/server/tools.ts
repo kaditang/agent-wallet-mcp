@@ -461,6 +461,21 @@ async function buildSwapAndStash(opts: {
       true,
     )
   }
+  // Hard upper bound. V1 doesn't need to support institutional sizes; an
+  // accidental "amountUsdc": "1000000" should be rejected, not built.
+  // Buys are USDC-denominated; sells are token-denominated. The cap is
+  // intentionally generous on shares (could be 1000 NVDAx ~ $250k) but tight
+  // on USDC. We pick "100000" units in either domain.
+  const MAX_AMOUNT_PER_TX = 100_000
+  if (inHuman > MAX_AMOUNT_PER_TX) {
+    return text(
+      JSON.stringify({
+        ok: false,
+        reason: `amount ${inHuman} exceeds V1 per-tx cap (${MAX_AMOUNT_PER_TX}). Split into smaller txs.`,
+      }),
+      true,
+    )
+  }
 
   // Hard-cap slippage so we never silently accept a wide minOut.
   const slippageBps = clampSlippage(opts.slippageBps)

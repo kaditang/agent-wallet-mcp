@@ -3,6 +3,11 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- Block being framed by another site (clickjacking / phishing iframe).
+         CSP meta tag works in Chromium/FF; Safari ignores meta frame-ancestors,
+         so account-main.ts also runs a JS frame-bust as a belt-and-braces. -->
+    <meta http-equiv="Content-Security-Policy" content="frame-ancestors 'none'" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
     <title>Approve Transaction</title>
     <style>
       :root {

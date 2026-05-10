@@ -1,5 +1,17 @@
 import { Connection, VersionedTransaction } from "@solana/web3.js"
 
+// Frame-busting: refuse to render inside an iframe. Safari ignores
+// CSP frame-ancestors from <meta>, so this catches that case too.
+if (window.top !== window.self) {
+  try {
+    window.top!.location.replace(window.location.href)
+  } catch {
+    // Cross-origin parent — can't redirect, just blank ourselves.
+    document.documentElement.innerHTML = ""
+  }
+  throw new Error("framed")
+}
+
 const DEFAULT_API =
   window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
     ? "http://localhost:3030"
@@ -52,7 +64,13 @@ fetch("https://ipapi.co/json/", { cache: "force-cache" })
 
 const params = new URLSearchParams(location.search)
 const id = params.get("id")
-const apiOverride = params.get("api")
+// SECURITY: refuse `?api=` override on production hosts. A phishing site
+// could use it to redirect tx fetches to attacker-controlled backend that
+// substitutes a wallet-draining unsigned tx (the page renders the attacker's
+// claims, user signs, funds gone). On localhost we still honour it for dev.
+const isLocalhost =
+  location.hostname === "localhost" || location.hostname === "127.0.0.1"
+const apiOverride = isLocalhost ? params.get("api") : null
 const apiBase = (apiOverride ?? DEFAULT_API).replace(/\/$/, "")
 
 const card = document.getElementById("card") as HTMLDivElement
