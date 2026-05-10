@@ -69,7 +69,10 @@ export async function jupiterSwapTx(opts: {
       wrapAndUnwrapSol: opts.wrapAndUnwrapSol ?? true,
       asLegacyTransaction: opts.asLegacyTransaction ?? false,
       dynamicComputeUnitLimit: true,
-      prioritizationFeeLamports: "auto",
+      // "auto" priority fee was too low in practice (txs failed to land).
+      // 0.0005 SOL ≈ $0.075 — small but reliably gets included on Solana
+      // even under moderate congestion.
+      prioritizationFeeLamports: 500000,
     }),
   })
   if (!r.ok) throw new Error(`jupiter swap ${r.status}: ${await r.text()}`)

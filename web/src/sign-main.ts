@@ -128,6 +128,20 @@ async function sign(tx: any) {
     return
   }
 
+  // Always refresh the tx right before signing — Jupiter quotes have
+  // ~60s blockhash. If user took >30s to click sign, this prevents expiry.
+  setStatus("info", "Refreshing transaction (latest blockhash)…")
+  try {
+    const r = await fetch(`${apiBase}/sign/rebuild/${tx.id}`, { method: "POST" })
+    if (r.ok) {
+      const fresh = await r.json()
+      tx.unsignedTxBase64 = fresh.unsignedTxBase64
+      if (fresh.expectedOut) tx.expectedOut = fresh.expectedOut
+    }
+  } catch {
+    // best-effort; fall through with stashed bytes
+  }
+
   let versionedTx: VersionedTransaction
   try {
     const bytes = Uint8Array.from(atob(tx.unsignedTxBase64), (c) => c.charCodeAt(0))
@@ -139,12 +153,33 @@ async function sign(tx: any) {
     return
   }
 
-  setStatus("info", "Phantom will prompt to sign. Approve to send.")
+  setStatus("info", "Phantom will prompt to sign. Approve.")
 
   let signature: string
   try {
-    const result = await provider.signAndSendTransaction(versionedTx)
-    signature = result.signature
+    // Sign only (don't let Phantom broadcast — its RPC is sometimes unreliable
+    // for Token-2022 + Jupiter routes). We broadcast via our backend's RPC.
+    const signedTx = await provider.signTransaction(versionedTx)
+    const signedBytes = signedTx.serialize()
+    // base64 encode
+    let binary = ""
+    const chunkSize = 0x8000
+    for (let i = 0; i < signedBytes.length; i += chunkSize) {
+      binary += String.fromCharCode.apply(null, signedBytes.slice(i, i + chunkSize) as any)
+    }
+    const signedTxBase64 = btoa(binary)
+
+    setStatus("info", "Broadcasting via backend RPC…")
+    const r = await fetch(`${apiBase}/sign/broadcast`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ signedTxBase64 }),
+    })
+    if (!r.ok) {
+      throw new Error(`broadcast failed: ${r.status} ${await r.text()}`)
+    }
+    const j = await r.json()
+    signature = j.signature
   } catch (e: any) {
     const msg = e?.message ?? String(e)
     if (/User reject|reject|denied/i.test(msg)) {

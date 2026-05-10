@@ -192,6 +192,45 @@ app.get("/sign/tx/:id", (req, res) => {
   })
 })
 
+// Rebuild a fresh swap tx for an existing sign id — used when the stashed tx
+// has aged out (blockhash expired). Same recipe, fresh quote + new blockhash.
+app.post("/sign/rebuild/:id", async (req, res) => {
+  const tx = getSignableTx(req.params.id)
+  if (!tx) {
+    res.status(404).json({ error: "tx not found or expired" })
+    return
+  }
+  if (!tx.rebuildRecipe) {
+    res.status(400).json({ error: "no rebuild recipe for this tx" })
+    return
+  }
+  try {
+    const { jupiterQuote, jupiterSwapTx } = await import("../sol/jupiter.js")
+    const r = tx.rebuildRecipe
+    const amountAtomic = BigInt(
+      Math.round(Number(r.amountInHuman) * 10 ** r.inputDecimals),
+    )
+    const quote = await jupiterQuote({
+      inputMint: r.inputMint,
+      outputMint: r.outputMint,
+      amountAtomic,
+      slippageBps: r.slippageBps,
+    })
+    const fresh = await jupiterSwapTx({ quote, userPublicKey: tx.wallet })
+    // Mutate stored entry in place so the page can refetch.
+    tx.unsignedTxBase64 = fresh.swapTransactionBase64
+    tx.lastValidBlockHeight = fresh.lastValidBlockHeight
+    tx.expectedOut = Number(quote.outAmount) / 10 ** r.outputDecimals
+    res.json({
+      unsignedTxBase64: fresh.swapTransactionBase64,
+      lastValidBlockHeight: fresh.lastValidBlockHeight,
+      expectedOut: tx.expectedOut,
+    })
+  } catch (e) {
+    res.status(500).json({ error: (e as Error).message })
+  }
+})
+
 app.post("/sign/confirm", (req, res) => {
   const { id, signature } = req.body ?? {}
   if (typeof id !== "string" || typeof signature !== "string") {
@@ -204,6 +243,27 @@ app.post("/sign/confirm", (req, res) => {
     return
   }
   res.json({ ok: true })
+})
+
+// Broadcast a CLIENT-SIGNED tx via our backend's reliable RPC. Used when
+// Phantom's `signAndSendTransaction` broadcast is unreliable; the sign page
+// instead uses `signTransaction` (sign only) and POSTs the signed bytes here.
+app.post("/sign/broadcast", async (req, res) => {
+  const { signedTxBase64 } = req.body ?? {}
+  if (typeof signedTxBase64 !== "string") {
+    res.status(400).json({ error: "signedTxBase64 required" })
+    return
+  }
+  try {
+    const raw = Buffer.from(signedTxBase64, "base64")
+    const sig = await solConn.sendRawTransaction(raw, {
+      skipPreflight: false,
+      maxRetries: 5,
+    })
+    res.json({ signature: sig, solscanUrl: `https://solscan.io/tx/${sig}` })
+  } catch (e) {
+    res.status(500).json({ error: (e as Error).message })
+  }
 })
 
 // Public read-only Solana balance lookup. No auth — anyone can query any address.

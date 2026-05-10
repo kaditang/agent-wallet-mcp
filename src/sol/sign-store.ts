@@ -22,6 +22,18 @@ export type SignableTx = {
   createdAt: number
   /** If signed, the signature is recorded here for the MCP `track_tx` tool. */
   signature?: string
+
+  /** Recipe to rebuild a fresh tx on demand — used when the originally
+   * stashed one has expired. The sign page calls /sign/rebuild/:id. */
+  rebuildRecipe?: {
+    inputMint: string
+    inputDecimals: number
+    outputMint: string
+    outputDecimals: number
+    outputSymbol: string
+    amountInHuman: string
+    slippageBps?: number
+  }
 }
 
 const STORE = new Map<string, SignableTx>()

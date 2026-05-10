@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Solana](https://img.shields.io/badge/chain-Solana-9945FF.svg)](https://solana.com)
 [![MCP](https://img.shields.io/badge/protocol-MCP-blue.svg)](https://modelcontextprotocol.io)
-[![Status](https://img.shields.io/badge/status-pre--alpha-orange.svg)](https://github.com/kaditang/agent-wallet-mcp)
+[![Status](https://img.shields.io/badge/status-live%20on%20mainnet-green.svg)](https://solscan.io/tx/55Agf6Dx1DbBTKC5zYdWi9McAUotBQkEiM6AqrAhKCCKBcGByoryTUMQiJuKDbTK5P46GtDCqG6scPnHRxmJEusD)
 
 > A non-custodial RWA service for AI agents on Solana — yield comparison, tokenized US-equity quotes, and ready-to-sign transactions. Funds stay in your wallet; we never sign.
 
@@ -101,4 +101,7 @@ MIT
 
 ## Status
 
-Pre-alpha. Building in public.
+**Live on Solana mainnet.** First USDC → Ondo USDY transaction signed via Phantom + broadcast through this service:
+[`55Agf6...JEusD`](https://solscan.io/tx/55Agf6Dx1DbBTKC5zYdWi9McAUotBQkEiM6AqrAhKCCKBcGByoryTUMQiJuKDbTK5P46GtDCqG6scPnHRxmJEusD)
+
+Building in public.

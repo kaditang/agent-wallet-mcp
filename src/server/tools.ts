@@ -432,6 +432,16 @@ async function buildSwapAndStash(opts: {
     protocol: opts.protocol,
     unsignedTxBase64: tx.swapTransactionBase64,
     lastValidBlockHeight: tx.lastValidBlockHeight,
+    // Recipe so sign page can request a fresh tx when blockhash expires.
+    rebuildRecipe: {
+      inputMint: opts.inputMint,
+      inputDecimals: opts.inputDecimals,
+      outputMint: opts.outputMint,
+      outputDecimals: opts.outputDecimals,
+      outputSymbol: opts.outputSymbol,
+      amountInHuman: opts.amountInHuman,
+      slippageBps: opts.slippageBps,
+    },
   })
   const signUrl = `${getSignBaseUrl()}/sign.html?id=${signId}`
 
