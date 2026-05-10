@@ -1,6 +1,9 @@
 import { Connection, VersionedTransaction } from "@solana/web3.js"
 
-const DEFAULT_API = "http://localhost:3030"
+const DEFAULT_API =
+  window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+    ? "http://localhost:3030"
+    : "https://autoyield-api.fly.dev"
 const RPC = "https://solana-rpc.publicnode.com"
 const conn = new Connection(RPC, "confirmed")
 
