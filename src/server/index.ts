@@ -10,12 +10,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js"
 import { z } from "zod"
 import { requireAuth, reply500 } from "./auth.js"
-import {
-  buildSignMessage,
-  consumeNonce,
-  issueNonce,
-  mintApiKey,
-} from "./auth-store.js"
+import { consumeNonce, issueNonce, mintApiKey } from "./auth-store.js"
 import { audit } from "./audit.js"
 import nacl from "tweetnacl"
 import bs58 from "bs58"
@@ -137,11 +132,11 @@ app.post("/auth/verify", buildLimiter, (req, res) => {
     res.status(400).json({ error: "pubkey must decode to 32 bytes" })
     return
   }
-  if (!consumeNonce(nonce)) {
+  const message = consumeNonce(nonce)
+  if (!message) {
     res.status(400).json({ error: "nonce invalid or expired" })
     return
   }
-  const message = buildSignMessage(nonce)
   const sigBytes = Buffer.from(signatureBase64, "base64")
   if (sigBytes.length !== 64) {
     res.status(400).json({ error: "signature must decode to 64 bytes" })

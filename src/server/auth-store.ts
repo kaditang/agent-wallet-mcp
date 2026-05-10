@@ -34,7 +34,7 @@ type Stored = {
   keys: Record<string, ApiKeyRecord>
 }
 
-const NONCES = new Map<string, { pubkey?: string; createdAt: number }>()
+const NONCES = new Map<string, { message: string; createdAt: number }>()
 let store: Stored = { keys: {} }
 
 function ensureDir() {
@@ -82,28 +82,28 @@ loadFromDisk()
 export function issueNonce(): { nonce: string; message: string; expiresAt: number } {
   const nonce = randomUUID()
   const expiresAt = Date.now() + NONCE_TTL_MS
-  NONCES.set(nonce, { createdAt: Date.now() })
+  // Build the message ONCE at issue time and store it. /auth/verify must
+  // verify the signature against this exact bytes — rebuilding the message
+  // at verify time would race the timestamp and break ed25519 verification.
+  const message = `Sign in to autoyield.org\n\nNonce: ${nonce}\nIssued: ${new Date().toISOString().slice(0, 19)}Z`
+  NONCES.set(nonce, { message, createdAt: Date.now() })
   // Sweep expired
   for (const [k, v] of NONCES) {
     if (Date.now() - v.createdAt > NONCE_TTL_MS) NONCES.delete(k)
   }
-  const message = buildSignMessage(nonce)
   return { nonce, message, expiresAt }
 }
 
-export function buildSignMessage(nonce: string): string {
-  return `Sign in to autoyield.org\n\nNonce: ${nonce}\nIssued: ${new Date().toISOString().slice(0, 19)}Z`
-}
-
-export function consumeNonce(nonce: string): boolean {
+/** Returns the message that was issued for this nonce, or null if invalid/expired. Single-use. */
+export function consumeNonce(nonce: string): string | null {
   const n = NONCES.get(nonce)
-  if (!n) return false
+  if (!n) return null
   if (Date.now() - n.createdAt > NONCE_TTL_MS) {
     NONCES.delete(nonce)
-    return false
+    return null
   }
   NONCES.delete(nonce)
-  return true
+  return n.message
 }
 
 // --- api keys ---
