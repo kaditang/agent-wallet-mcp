@@ -125,27 +125,32 @@ const ACCOUNT_PAGE = process.env.WEB_BASE_URL
   ? `${process.env.WEB_BASE_URL.replace(/\/$/, "")}/account.html`
   : "https://autoyield.org/account.html"
 
+// Auth advertisement strategy:
+//   - We tell clients "this resource takes a static Bearer token in the
+//     Authorization header" (RFC 9728).
+//   - We DELIBERATELY do NOT advertise authorization_servers, because some
+//     MCP gateways (notably Smithery) then insist on running a full OAuth
+//     2.1 authorization-code dance and get stuck even with a working bridge.
+//     Static-Bearer-only matches our actual model: users mint a key once
+//     at autoyield.org/account.html and paste it into the MCP client.
+//   - oauth-authorization-server returns 404. mcp-remote tested OK without
+//     it (it falls through to /register stub for client info).
+//   - /register and /auth/token stubs stay in case a strict OAuth client
+//     does drive past discovery — they DO produce a usable token.
 app.get("/.well-known/oauth-protected-resource", readLimiter, (_req, res) => {
   res.json({
     resource: ORIGIN,
-    authorization_servers: [ORIGIN],
     bearer_methods_supported: ["header"],
     scopes_supported: ["mcp"],
+    // No `authorization_servers` field on purpose — see comment above.
   })
 })
 
 app.get("/.well-known/oauth-authorization-server", readLimiter, (_req, res) => {
-  res.json({
-    issuer: ORIGIN,
-    authorization_endpoint: ACCOUNT_PAGE,
-    token_endpoint: `${ORIGIN}/auth/token`,
-    registration_endpoint: `${ORIGIN}/register`,
-    response_types_supported: ["code"],
-    grant_types_supported: ["authorization_code"],
-    code_challenge_methods_supported: ["S256"],
-    scopes_supported: ["mcp"],
-    token_endpoint_auth_methods_supported: ["none"],
-  })
+  // Intentional 404: not advertising an OAuth authorization server.
+  // Static Bearer key (ak_<hex>) is the only auth path. Clients that hit
+  // this URL fall back to using whatever Bearer they were configured with.
+  res.status(404).json({ error: "no_authorization_server" })
 })
 
 // Dynamic client registration stub. Returns a random client_id; mcp-remote
