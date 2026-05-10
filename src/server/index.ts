@@ -12,7 +12,13 @@ import { z } from "zod"
 import { requireAuth } from "./auth.js"
 import { dispatch as toolDispatch, getToolList } from "./tools.js"
 import { getBalances } from "../sol/balances.js"
-import { getSignableTx, recordSignature } from "../sol/sign-store.js"
+import {
+  getSignableTx,
+  recordSignature,
+  updateRebuiltTx,
+  withBroadcastLock,
+} from "../sol/sign-store.js"
+import { withRpcFallback } from "../sol/connection.js"
 import { SOL_AGENT_PUBKEY } from "../sol/agent.js"
 import {
   buildCreateMultisigIxs,
@@ -22,7 +28,6 @@ import {
 } from "../sol/squads.js"
 import { PublicKey, Transaction } from "@solana/web3.js"
 import { SOL_USDC, XSTOCKS } from "../sol/tokens.js"
-import { solConn } from "../sol/connection.js"
 
 const app = express()
 
@@ -97,7 +102,9 @@ app.post("/sol/grant-plan", readLimiter, requireAuth, async (req, res) => {
     const createKey = freshCreateKey()
     const slCreateKey = freshCreateKey()
     const programConfigPda = getProgramConfigPda()
-    const programConfigInfo = await solConn.getAccountInfo(programConfigPda)
+    const programConfigInfo = await withRpcFallback((c) =>
+      c.getAccountInfo(programConfigPda),
+    )
     if (!programConfigInfo) {
       res.status(500).json({ error: "Squads program config not found on this RPC" })
       return
@@ -131,7 +138,7 @@ app.post("/sol/grant-plan", readLimiter, requireAuth, async (req, res) => {
 
     const tx = new Transaction()
     tx.feePayer = ownerPk
-    const { blockhash } = await solConn.getLatestBlockhash()
+    const { blockhash } = await withRpcFallback((c) => c.getLatestBlockhash())
     tx.recentBlockhash = blockhash
     for (const ix of ixs) tx.add(ix)
 
@@ -210,14 +217,16 @@ app.post("/sign/rebuild/:id", buildLimiter, async (req, res) => {
       slippageBps: r.slippageBps,
     })
     const fresh = await jupiterSwapTx({ quote, userPublicKey: tx.wallet })
-    // Mutate stored entry in place so the page can refetch.
-    tx.unsignedTxBase64 = fresh.swapTransactionBase64
-    tx.lastValidBlockHeight = fresh.lastValidBlockHeight
-    tx.expectedOut = Number(quote.outAmount) / 10 ** r.outputDecimals
+    const expectedOut = Number(quote.outAmount) / 10 ** r.outputDecimals
+    updateRebuiltTx(tx.id, {
+      unsignedTxBase64: fresh.swapTransactionBase64,
+      lastValidBlockHeight: fresh.lastValidBlockHeight,
+      expectedOut,
+    })
     res.json({
       unsignedTxBase64: fresh.swapTransactionBase64,
       lastValidBlockHeight: fresh.lastValidBlockHeight,
-      expectedOut: tx.expectedOut,
+      expectedOut,
     })
   } catch (e) {
     res.status(500).json({ error: (e as Error).message })
@@ -276,13 +285,21 @@ app.post("/sign/broadcast", broadcastLimiter, async (req, res) => {
       return
     }
 
-    const sig = await solConn.sendRawTransaction(raw, {
-      skipPreflight: false,
-      maxRetries: 5,
-    })
+    // Lock per id — second submission for the same id immediately rejects.
+    const sig = await withBroadcastLock(id, async () =>
+      withRpcFallback((c) =>
+        c.sendRawTransaction(raw, { skipPreflight: false, maxRetries: 5 }),
+      ),
+    )
+    recordSignature(id, sig)
     res.json({ signature: sig, solscanUrl: `https://solscan.io/tx/${sig}` })
   } catch (e) {
-    res.status(500).json({ error: (e as Error).message })
+    const msg = (e as Error).message
+    if (/already broadcast|already in flight/i.test(msg)) {
+      res.status(409).json({ error: msg })
+    } else {
+      res.status(500).json({ error: msg })
+    }
   }
 })
 

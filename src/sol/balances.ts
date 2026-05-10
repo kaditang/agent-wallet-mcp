@@ -1,5 +1,5 @@
 import { LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js"
-import { solConn } from "./connection.js"
+import { withRpcFallback } from "./connection.js"
 import { SOL_USDC, XSTOCKS } from "./tokens.js"
 
 const SPL_TOKEN = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
@@ -21,9 +21,13 @@ export async function getBalances(addressBase58: string): Promise<BalancesReport
   const owner = new PublicKey(addressBase58)
 
   const [lamports, splAccs, t22Accs] = await Promise.all([
-    solConn.getBalance(owner),
-    solConn.getParsedTokenAccountsByOwner(owner, { programId: SPL_TOKEN }),
-    solConn.getParsedTokenAccountsByOwner(owner, { programId: TOKEN_2022 }),
+    withRpcFallback((c) => c.getBalance(owner)),
+    withRpcFallback((c) =>
+      c.getParsedTokenAccountsByOwner(owner, { programId: SPL_TOKEN }),
+    ),
+    withRpcFallback((c) =>
+      c.getParsedTokenAccountsByOwner(owner, { programId: TOKEN_2022 }),
+    ),
   ])
 
   const splInfos = splAccs.value.map((a) => a.account.data.parsed.info)
