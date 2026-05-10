@@ -64,9 +64,14 @@ const oauthFlow = (() => {
   return { redirectUri, state }
 })()
 
+// Hosts allowed to receive an OAuth `code=<api-key>` callback without a
+// confirmation prompt. Smithery's gateway uses `*.smithery.run`,
+// `*.smithery.ai`, AND `*.run.tools` (their separate proxy TLD), so all
+// three are explicitly trusted.
 const KNOWN_MCP_GATEWAY_HOSTS = [
   "smithery.run",
   "smithery.ai",
+  "run.tools",
   "localhost",
   "127.0.0.1",
 ]
