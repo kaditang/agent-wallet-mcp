@@ -1,0 +1,49 @@
+# Fly.io deployment for autoyield backend.
+#
+# First-time setup (run from repo root, after `flyctl auth login`):
+#   1. flyctl launch --no-deploy --copy-config --name autoyield-api --region sjc
+#      (if the name "autoyield-api" is taken, pick another and update `app` below)
+#   2. flyctl volumes create data --region sjc --size 1
+#      (1GB is plenty — sign-store is small, audit log rotates if it grows)
+#   3. flyctl secrets set \
+#        SOL_RPC="https://mainnet.helius-rpc.com/?api-key=YOUR_KEY" \
+#        DEMO_TOKENS="prod-token-1:user1,prod-token-2:user2" \
+#        ALLOWED_ORIGINS="https://autoyield.org,https://www.autoyield.org" \
+#        WEB_BASE_URL="https://autoyield.org"
+#   4. flyctl deploy
+#
+# After deploy, point the sign page at the deployed API by setting
+# WEB_BASE_URL on Fly to the autoyield.org domain (or whichever host serves
+# the static sign page) and verifying CORS via /healthz.
+
+app = "autoyield-api"
+primary_region = "sjc"
+
+[build]
+
+[env]
+  PORT = "3030"
+  NODE_ENV = "production"
+
+[[mounts]]
+  source = "data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 3030
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/healthz"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

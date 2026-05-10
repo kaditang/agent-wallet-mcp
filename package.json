@@ -32,9 +32,15 @@
   ],
   "scripts": {
     "mcp:http": "tsx src/server/index.ts",
-    "mcp:stdio": "tsx src/server/stdio.ts",
     "build": "tsc",
+    "start": "node dist/server/index.js",
     "prepublishOnly": "npm run build"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "overrides": {
+    "uuid": "^9.0.1"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",

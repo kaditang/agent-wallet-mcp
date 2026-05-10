@@ -1,0 +1,11 @@
+node_modules
+dist
+data
+docs
+web
+.git
+.gitignore
+.env
+.env.example
+*.md
+SUBMISSION.md
