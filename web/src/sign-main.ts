@@ -334,6 +334,22 @@ async function sign(tx: any) {
     return
   }
 
+  // Re-check the active Phantom account RIGHT before sign. Phantom does not
+  // re-prompt the user when the active account is switched in the extension
+  // between connect() and signTransaction(); without this check, signing with
+  // the wrong account produces an invalid signature that fails on broadcast,
+  // but only AFTER Phantom showed the user a deceptive approval prompt.
+  const activePubkey = provider.publicKey?.toString?.() ?? null
+  if (activePubkey && activePubkey !== tx.wallet) {
+    setStatus(
+      "err",
+      `Wallet switched in Phantom.\nThis transaction is for ${shortAddr(tx.wallet)} but Phantom's active account is now ${shortAddr(activePubkey)}.\nSwitch back in Phantom, then click sign again.`,
+    )
+    btn.disabled = false
+    btn.textContent = "Connect Phantom & Sign"
+    return
+  }
+
   setStatus("info", "Phantom will prompt to sign. Approve.")
 
   let signature: string

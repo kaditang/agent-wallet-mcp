@@ -18,6 +18,10 @@ export type SignableTx = {
   id: string
   kind: "buy_xstock" | "sell_xstock" | "deposit_yield" | "withdraw_yield"
   wallet: string
+  /** Authenticated MCP user that built this tx (req.userId from requireAuth).
+   *  Stamped at stash time. Used for audit traceability and to detect when
+   *  someone else's sign id is being abused for rebuild traffic. */
+  userId?: string
   ticker?: string
   /** "Headline" symbol — for buy/deposit this is the OUTPUT (what user gets);
    *  for sell/withdraw this is the INPUT (what user is selling). */
@@ -38,6 +42,9 @@ export type SignableTx = {
   signature?: string
   /** Set once a broadcast has started — guards against double-broadcast. */
   broadcastingAt?: number
+  /** Number of times /sign/rebuild has refreshed this tx. Capped to prevent
+   *  a leaked sign id from being used as a free Jupiter quote oracle. */
+  rebuildCount?: number
   rebuildRecipe?: {
     inputMint: string
     inputDecimals: number
@@ -48,6 +55,12 @@ export type SignableTx = {
     slippageBps?: number
   }
 }
+
+/** Hard cap on how many times a single sign id can be rebuilt. Each rebuild
+ *  costs us a Jupiter quote + swap-tx call. 20 is generous for a real user
+ *  (they'd hit "rebuild" once per blockhash expiry, ~60s) and tight enough
+ *  that a leaked id can't be milked indefinitely. */
+export const REBUILD_CAP_PER_ID = 20
 
 const STORE = new Map<string, SignableTx>()
 const LOCKS = new Map<string, Promise<unknown>>() // per-id mutex
@@ -120,6 +133,28 @@ export function recordSignature(id: string, signature: string): boolean {
   tx.signature = signature
   flushToDisk()
   return true
+}
+
+/**
+ * Reserve one rebuild slot for this sign id. Returns the new rebuild count if
+ * under cap; throws RebuildCapError if at/over cap. Call BEFORE the expensive
+ * Jupiter call so we don't burn quote quota on a capped id.
+ */
+export class RebuildCapError extends Error {
+  constructor() {
+    super(`rebuild cap (${REBUILD_CAP_PER_ID}) exceeded for this sign id`)
+    this.name = "RebuildCapError"
+  }
+}
+
+export function reserveRebuild(id: string): number {
+  const tx = STORE.get(id)
+  if (!tx) return 0
+  const next = (tx.rebuildCount ?? 0) + 1
+  if (next > REBUILD_CAP_PER_ID) throw new RebuildCapError()
+  tx.rebuildCount = next
+  flushToDisk()
+  return next
 }
 
 export function updateRebuiltTx(

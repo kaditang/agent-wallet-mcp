@@ -162,13 +162,16 @@ const TOOLS = [
   },
 ] as const
 
-export async function dispatch({
-  name,
-  arguments: args,
-}: {
-  name: string
-  arguments?: any
-}) {
+export async function dispatch(
+  {
+    name,
+    arguments: args,
+  }: {
+    name: string
+    arguments?: any
+  },
+  ctx?: { userId?: string },
+) {
   // --- READ ---
   if (name === "compare_yields") {
     const { minTvlUsd, amountUsdc } = z
@@ -328,6 +331,7 @@ export async function dispatch({
     }
     return buildSwapAndStash({
       wallet,
+      userId: ctx?.userId,
       inputMint: SOL_USDC,
       inputDecimals: 6,
       inputSymbol: "USDC",
@@ -357,6 +361,7 @@ export async function dispatch({
     }
     return buildSwapAndStash({
       wallet,
+      userId: ctx?.userId,
       inputMint: SOL_USDC,
       inputDecimals: 6,
       inputSymbol: "USDC",
@@ -386,6 +391,7 @@ export async function dispatch({
     }
     return buildSwapAndStash({
       wallet,
+      userId: ctx?.userId,
       inputMint: stock.mint,
       inputDecimals: stock.decimals,
       inputSymbol: stock.symbol,
@@ -416,6 +422,7 @@ export async function dispatch({
     }
     return buildSwapAndStash({
       wallet,
+      userId: ctx?.userId,
       inputMint: token.mint,
       inputDecimals: token.decimals,
       inputSymbol: token.symbol,
@@ -476,6 +483,9 @@ function checkPriceImpactSane(
 
 async function buildSwapAndStash(opts: {
   wallet: string
+  /** Authenticated MCP user (the one whose api key built this tx). Stamped on
+   *  the sign-store entry for audit traceability. */
+  userId?: string
   inputMint: string
   inputDecimals: number
   /** Symbol shown in "Spending" row on the sign page. e.g. "USDC", "USDY", "NVDAx". */
@@ -568,6 +578,7 @@ async function buildSwapAndStash(opts: {
   const signId = stashSignableTx({
     kind: stashKind,
     wallet: opts.wallet,
+    userId: opts.userId,
     ticker: opts.ticker,
     symbol: opts.symbol ?? opts.outputSymbol,
     amountUsdc:
@@ -597,7 +608,7 @@ async function buildSwapAndStash(opts: {
     txKind: opts.kind,
     amount: inHuman,
     symbol: opts.symbol ?? opts.outputSymbol,
-    extra: { expectedOut, slippageBps },
+    extra: { expectedOut, slippageBps, userId: opts.userId },
   })
   const signUrl = `${getSignBaseUrl()}/sign.html?id=${signId}`
 

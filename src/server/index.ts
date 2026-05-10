@@ -30,6 +30,8 @@ import {
   BroadcastLockError,
   getSignableTx,
   recordSignature,
+  RebuildCapError,
+  reserveRebuild,
   updateRebuiltTx,
   withBroadcastLock,
 } from "../sol/sign-store.js"
@@ -37,7 +39,7 @@ import { randomUUID } from "node:crypto"
 import { withRpcFallback } from "../sol/connection.js"
 import { VersionedTransaction } from "@solana/web3.js"
 
-const app = express()
+export const app = express()
 
 // Trust the first proxy (Fly's edge). Without this, express-rate-limit
 // refuses to use X-Forwarded-For and all requests appear to come from one
@@ -381,6 +383,9 @@ app.get("/sign/tx/:id", readLimiter, (req, res) => {
 
 // Rebuild a fresh swap tx for an existing sign id — used when the stashed tx
 // has aged out (blockhash expired). Same recipe, fresh quote + new blockhash.
+//
+// Per-id rebuild cap (REBUILD_CAP_PER_ID) reserves a slot BEFORE the Jupiter
+// call so a leaked sign id can't be milked indefinitely as a free quote oracle.
 app.post("/sign/rebuild/:id", buildLimiter, async (req, res) => {
   const tx = getSignableTx(String(req.params.id))
   if (!tx) {
@@ -390,6 +395,22 @@ app.post("/sign/rebuild/:id", buildLimiter, async (req, res) => {
   if (!tx.rebuildRecipe) {
     res.status(400).json({ error: "no rebuild recipe for this tx" })
     return
+  }
+  // Reserve a rebuild slot up front; throws if cap reached.
+  try {
+    reserveRebuild(tx.id)
+  } catch (e) {
+    if (e instanceof RebuildCapError) {
+      audit({
+        kind: "rate_limit",
+        ip: req.ip,
+        signId: tx.id,
+        error: "rebuild-cap",
+      })
+      res.status(429).json({ error: e.message })
+      return
+    }
+    throw e
   }
   try {
     const { jupiterQuote, jupiterSwapTx } = await import("../sol/jupiter.js")
@@ -416,7 +437,7 @@ app.post("/sign/rebuild/:id", buildLimiter, async (req, res) => {
       expectedOut,
     })
   } catch (e) {
-    reply500(res, e)
+    reply500(res, e, { route: "/sign/rebuild" })
   }
 })
 
@@ -547,7 +568,9 @@ app.post("/mcp", buildLimiter, requireAuth, async (req, res) => {
     { capabilities: { tools: {} } },
   )
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: getToolList() as any }))
-  server.setRequestHandler(CallToolRequestSchema, async (r) => toolDispatch(r.params))
+  server.setRequestHandler(CallToolRequestSchema, async (r) =>
+    toolDispatch(r.params, { userId: req.userId }),
+  )
 
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
@@ -564,18 +587,22 @@ app.post("/mcp", buildLimiter, requireAuth, async (req, res) => {
 // x402 demo endpoints. Frozen for V1d service architecture; reusable patterns
 // for V2 paid-API monetization layer.)
 
-const port = Number(process.env.PORT ?? 3030)
-const server = app.listen(port, () => {
-  console.log(`autoyield mcp service listening on :${port}`)
-})
+// Don't call listen() when imported by tests — vitest imports `app` to
+// drive supertest and doesn't need a bound port.
+if (process.env.NODE_ENV !== "test") {
+  const port = Number(process.env.PORT ?? 3030)
+  const server = app.listen(port, () => {
+    console.log(`autoyield mcp service listening on :${port}`)
+  })
 
-// Graceful shutdown — flush Sentry + audit log before Fly kills us.
-async function shutdown(signal: string) {
-  console.log(`[shutdown] ${signal} received, flushing...`)
-  await flushSentry(2000)
-  server.close(() => process.exit(0))
-  // Hard exit if close() hangs past 5s (existing connections, etc.)
-  setTimeout(() => process.exit(0), 5000).unref()
+  // Graceful shutdown — flush Sentry + audit log before Fly kills us.
+  const shutdown = async (signal: string) => {
+    console.log(`[shutdown] ${signal} received, flushing...`)
+    await flushSentry(2000)
+    server.close(() => process.exit(0))
+    // Hard exit if close() hangs past 5s (existing connections, etc.)
+    setTimeout(() => process.exit(0), 5000).unref()
+  }
+  process.on("SIGTERM", () => void shutdown("SIGTERM"))
+  process.on("SIGINT", () => void shutdown("SIGINT"))
 }
-process.on("SIGTERM", () => void shutdown("SIGTERM"))
-process.on("SIGINT", () => void shutdown("SIGINT"))
