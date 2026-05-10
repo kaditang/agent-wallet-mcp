@@ -45,7 +45,6 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",
     "@solana/web3.js": "^1.98.4",
-    "@sqds/multisig": "^2.1.4",
     "@types/cors": "^2.8.19",
     "bs58": "^6.0.0",
     "cors": "^2.8.6",

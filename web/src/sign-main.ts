@@ -187,18 +187,19 @@ async function load(txId: string) {
 
   card.innerHTML = renderCard(tx)
   btn.disabled = false
-  // High-value confirmation: tx > $50 requires a 2-step click (button text
-  // changes to "Confirm $X" with 3-second delay before second click is
-  // accepted). Defends against accidental click-through.
+  // High-value confirmation: any tx >$50 USD-equivalent (whichever side is
+  // USDC — input for buy/deposit, output for sell/withdraw) requires a
+  // 2-step click with 3-second delay. Defends against accidental click-through.
   const HIGH_VALUE_THRESHOLD_USD = 50
-  const value = tx.amountUsdc ?? 0
+  const value = tx.valueUsdEstimate ?? tx.amountUsdc ?? 0
   if (value > HIGH_VALUE_THRESHOLD_USD) {
-    btn.textContent = `Confirm spending $${value} (3s)…`
+    const valueShown = Math.round(value * 100) / 100
+    btn.textContent = `Confirm $${valueShown} (3s)…`
     btn.disabled = true
     let armedAt = 0
     setTimeout(() => {
       btn.disabled = false
-      btn.textContent = `I confirm spending $${value} — Sign in Phantom`
+      btn.textContent = `I confirm $${valueShown} — Sign in Phantom`
       armedAt = Date.now()
       btn.onclick = () => {
         if (Date.now() - armedAt < 100) return // double-click guard
@@ -212,18 +213,61 @@ async function load(txId: string) {
 
 function renderCard(tx: any): string {
   const rows: string[] = []
-  if (tx.symbol && tx.amountUsdc != null) {
-    rows.push(row("Action", `Buy ${tx.symbol}`))
-    rows.push(row("Spending", `${tx.amountUsdc} USDC`, true))
-    if (tx.expectedOut) {
-      rows.push(row("You receive (≈)", `${tx.expectedOut.toFixed(6)} ${tx.symbol}`, true))
+  // Action label depends on the direction of the swap.
+  const actionLabel = (() => {
+    switch (tx.kind) {
+      case "buy_xstock":
+        return tx.symbol ? `Buy ${tx.symbol}` : "Buy xStock"
+      case "deposit_yield":
+        return tx.symbol ? `Buy ${tx.symbol}` : "Buy yield token"
+      case "sell_xstock":
+        return tx.inputSymbol
+          ? `Sell ${tx.inputSymbol} for USDC`
+          : "Sell xStock for USDC"
+      case "withdraw_yield":
+        return tx.inputSymbol
+          ? `Sell ${tx.inputSymbol} for USDC`
+          : "Sell yield token for USDC"
+      default:
+        return tx.kind ?? "Transaction"
     }
-  } else if (tx.kind) {
-    rows.push(row("Action", tx.kind))
+  })()
+  rows.push(row("Action", actionLabel))
+
+  // "Spending" row — uses inputAmount/inputSymbol (unified, works for all 4
+  // kinds). Falls back to amountUsdc for older stashed txs that predate
+  // the input-fields fix.
+  if (tx.inputAmount != null && tx.inputSymbol) {
+    const amt = formatAmount(tx.inputAmount)
+    rows.push(row("Spending", `${amt} ${tx.inputSymbol}`, true))
+  } else if (tx.amountUsdc != null) {
+    rows.push(row("Spending", `${tx.amountUsdc} USDC`, true))
   }
+
+  // "You receive (≈)" row — for buy/deposit shows token; for sell/withdraw
+  // shows USDC. Either way the receive symbol is "the other side" — we use
+  // tx.symbol when it is the output (buy/deposit), or hard-code "USDC" when
+  // tx.symbol is the input (sell/withdraw).
+  if (tx.expectedOut) {
+    const isReceiveUsdc =
+      tx.kind === "sell_xstock" || tx.kind === "withdraw_yield"
+    const receiveSymbol = isReceiveUsdc ? "USDC" : tx.symbol
+    if (receiveSymbol) {
+      const out = formatAmount(tx.expectedOut)
+      rows.push(row("You receive (≈)", `${out} ${receiveSymbol}`, true))
+    }
+  }
+
   rows.push(row("Wallet", shortAddr(tx.wallet, 6, 6)))
   rows.push(row("Network", "Solana mainnet"))
   return rows.join("")
+}
+
+function formatAmount(n: number): string {
+  // Trim trailing zeros: 0.881736 → "0.881736", 2 → "2", 0.00921674 → "0.00921674"
+  if (Number.isInteger(n)) return String(n)
+  // Up to 6 decimals, strip trailing zeros.
+  return n.toFixed(6).replace(/0+$/, "").replace(/\.$/, "")
 }
 
 function row(label: string, val: string, big = false) {

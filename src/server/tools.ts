@@ -298,6 +298,7 @@ export async function dispatch({
       wallet,
       inputMint: SOL_USDC,
       inputDecimals: 6,
+      inputSymbol: "USDC",
       outputMint: token.mint,
       outputDecimals: token.decimals,
       outputSymbol: token.symbol,
@@ -326,6 +327,7 @@ export async function dispatch({
       wallet,
       inputMint: SOL_USDC,
       inputDecimals: 6,
+      inputSymbol: "USDC",
       outputMint: stock.mint,
       outputDecimals: stock.decimals,
       outputSymbol: stock.symbol,
@@ -354,6 +356,7 @@ export async function dispatch({
       wallet,
       inputMint: stock.mint,
       inputDecimals: stock.decimals,
+      inputSymbol: stock.symbol,
       outputMint: SOL_USDC,
       outputDecimals: 6,
       outputSymbol: "USDC",
@@ -383,6 +386,7 @@ export async function dispatch({
       wallet,
       inputMint: token.mint,
       inputDecimals: token.decimals,
+      inputSymbol: token.symbol,
       outputMint: SOL_USDC,
       outputDecimals: 6,
       outputSymbol: "USDC",
@@ -442,6 +446,8 @@ async function buildSwapAndStash(opts: {
   wallet: string
   inputMint: string
   inputDecimals: number
+  /** Symbol shown in "Spending" row on the sign page. e.g. "USDC", "USDY", "NVDAx". */
+  inputSymbol: string
   outputMint: string
   outputDecimals: number
   outputSymbol: string
@@ -518,9 +524,15 @@ async function buildSwapAndStash(opts: {
 
   const tx = await jupiterSwapTx({ quote, userPublicKey: opts.wallet })
 
-  // For sells, "amountUsdc" is meaningless but the sign page shows it; keep
-  // expectedOut (USDC received) and label what we're selling instead.
+  // For sells/withdraws the input is the user's token (USDY/NVDAx) and the
+  // output is USDC; for buys/deposits it's the reverse. Sign page wants to
+  // show both legs no matter the direction. valueUsdEstimate is the USDC
+  // amount on whichever side is USDC — used for the >$50 high-value confirm.
   const stashKind = opts.kind
+  const valueUsdEstimate =
+    stashKind === "deposit_yield" || stashKind === "buy_xstock"
+      ? inHuman // user is spending USDC → input amount is the dollar value
+      : expectedOut // user is receiving USDC → output amount is the dollar value
   const signId = stashSignableTx({
     kind: stashKind,
     wallet: opts.wallet,
@@ -529,6 +541,9 @@ async function buildSwapAndStash(opts: {
     amountUsdc:
       stashKind === "deposit_yield" || stashKind === "buy_xstock" ? inHuman : undefined,
     expectedOut,
+    inputAmount: inHuman,
+    inputSymbol: opts.inputSymbol,
+    valueUsdEstimate,
     protocol: opts.protocol,
     unsignedTxBase64: tx.swapTransactionBase64,
     lastValidBlockHeight: tx.lastValidBlockHeight,

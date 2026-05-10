@@ -10,7 +10,13 @@ import {
 } from "@modelcontextprotocol/sdk/types.js"
 import { z } from "zod"
 import { requireAuth, reply500 } from "./auth.js"
-import { consumeNonce, issueNonce, mintApiKey } from "./auth-store.js"
+import {
+  consumeNonce,
+  issueNonce,
+  mintApiKey,
+  revokeAllForPubkey,
+  revokeApiKey,
+} from "./auth-store.js"
 import { audit } from "./audit.js"
 import nacl from "tweetnacl"
 import bs58 from "bs58"
@@ -25,15 +31,7 @@ import {
 } from "../sol/sign-store.js"
 import { randomUUID } from "node:crypto"
 import { withRpcFallback } from "../sol/connection.js"
-import { SOL_AGENT_PUBKEY } from "../sol/agent.js"
-import {
-  buildCreateMultisigIxs,
-  freshCreateKey,
-  getProgramConfigPda,
-  Period,
-} from "../sol/squads.js"
-import { PublicKey, Transaction, VersionedTransaction } from "@solana/web3.js"
-import { SOL_USDC, XSTOCKS } from "../sol/tokens.js"
+import { VersionedTransaction } from "@solana/web3.js"
 
 const app = express()
 
@@ -264,104 +262,91 @@ app.post("/auth/verify", buildLimiter, (req, res) => {
   res.json({ apiKey, pubkey })
 })
 
-// Solana agent identity — frontend asks "who's the agent I should add?"
-app.get("/sol/agent", readLimiter, (_req, res) => {
-  if (!SOL_AGENT_PUBKEY) {
-    res.status(500).json({ error: "SOL_AGENT_PUBKEY not configured" })
-    return
-  }
-  res.json({ agent: SOL_AGENT_PUBKEY.toBase58() })
-})
+// Revoke an api key. Two modes:
+//   1. Authenticated by the key itself (Bearer ak_xxx) → revokes that one key
+//   2. Authenticated by Phantom signature (proves wallet ownership) →
+//      can revoke ALL keys for that pubkey, useful when a key leaks and the
+//      user no longer has it but does have the wallet.
+app.post("/auth/revoke", buildLimiter, (req, res) => {
+  const { mode, apiKey, pubkey, nonce, signatureBase64 } = req.body ?? {}
 
-// Build the unsigned create-multisig transaction. The frontend asks for it,
-// has the user sign with Phantom, and sends it. Server returns the PDAs the
-// agent will need to track later.
-app.post("/sol/grant-plan", readLimiter, requireAuth, async (req, res) => {
-  if (!SOL_AGENT_PUBKEY) {
-    res.status(500).json({ error: "SOL_AGENT_PUBKEY not configured" })
-    return
-  }
-  const owner = (req.body?.owner ?? "").toString()
-  if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(owner)) {
-    res.status(400).json({ error: "owner must be a base58 Solana address" })
-    return
-  }
-  const dailyUsdcCap = Number(req.body?.dailyUsdcCap ?? 5)
-  if (!Number.isFinite(dailyUsdcCap) || dailyUsdcCap <= 0 || dailyUsdcCap > 1000) {
-    res.status(400).json({ error: "dailyUsdcCap must be > 0 and ≤ 1000" })
-    return
-  }
-
-  try {
-    const ownerPk = new PublicKey(owner)
-    const createKey = freshCreateKey()
-    const slCreateKey = freshCreateKey()
-    const programConfigPda = getProgramConfigPda()
-    const programConfigInfo = await withRpcFallback((c) =>
-      c.getAccountInfo(programConfigPda),
-    )
-    if (!programConfigInfo) {
-      res.status(500).json({ error: "Squads program config not found on this RPC" })
+  if (mode === "self") {
+    // Self-revoke: prove possession of the key by passing it.
+    if (typeof apiKey !== "string" || !apiKey.startsWith("ak_")) {
+      res.status(400).json({ error: "apiKey required for self mode" })
       return
     }
-    // The treasury address is encoded in the program config account (offset 8)
-    // For simplicity we read it from account data.
-    const treasury = new PublicKey(programConfigInfo.data.subarray(8, 40))
-
-    const xstockMints = Object.values(XSTOCKS).map((s) => new PublicKey(s.mint))
-
-    const { multisigPda, vaultPda, ixs } = buildCreateMultisigIxs({
-      plan: {
-        createKey,
-        owner: ownerPk,
-        agent: SOL_AGENT_PUBKEY,
-      },
-      spendingLimit: {
-        createKey: slCreateKey,
-        mint: new PublicKey(SOL_USDC),
-        amount: BigInt(Math.round(dailyUsdcCap * 1_000_000)),
-        period: Period.Day,
-        // Empty destinations means "any". For tighter control we'd whitelist
-        // specific ATAs, but agent often needs to send USDC to dynamic
-        // recipients (Jupiter swap legs, x402 merchants).
-        destinations: [],
-      },
-      treasury,
-    })
-    // mark unused — programConfigPda is fetched only to read treasury bytes
-    void programConfigPda
-
-    const tx = new Transaction()
-    tx.feePayer = ownerPk
-    const { blockhash } = await withRpcFallback((c) => c.getLatestBlockhash())
-    tx.recentBlockhash = blockhash
-    for (const ix of ixs) tx.add(ix)
-
-    const serialized = tx
-      .serialize({ requireAllSignatures: false, verifySignatures: false })
-      .toString("base64")
-
-    res.json({
-      multisigPda: multisigPda.toBase58(),
-      vaultPda: vaultPda.toBase58(),
-      createKey: createKey.toBase58(),
-      spendingLimitCreateKey: slCreateKey.toBase58(),
-      agent: SOL_AGENT_PUBKEY.toBase58(),
-      dailyUsdcCap,
-      whitelistedMints: xstockMints.map((m) => m.toBase58()),
-      transactionBase64: serialized,
-      note:
-        "Have the user sign + send this transaction with Phantom. Then POST /sol/grant-confirm with multisigPda + vaultPda to register.",
-    })
-  } catch (e) {
-    reply500(res, e)
+    const ok = revokeApiKey(apiKey)
+    if (!ok) {
+      res.status(404).json({ error: "key not found (already revoked?)" })
+      return
+    }
+    audit({ kind: "api_key_revoked", ip: req.ip, extra: { mode: "self" } })
+    res.json({ revoked: 1 })
+    return
   }
+
+  if (mode === "all") {
+    // Revoke-all-for-wallet: prove ownership by signing a fresh nonce. Same
+    // ed25519 verify path as /auth/verify.
+    if (
+      typeof pubkey !== "string" ||
+      typeof nonce !== "string" ||
+      typeof signatureBase64 !== "string"
+    ) {
+      res
+        .status(400)
+        .json({ error: "pubkey, nonce, signatureBase64 required for all mode" })
+      return
+    }
+    let pubkeyBytes: Uint8Array
+    try {
+      pubkeyBytes = bs58.decode(pubkey)
+    } catch {
+      res.status(400).json({ error: "pubkey must be base58" })
+      return
+    }
+    if (pubkeyBytes.length !== 32) {
+      res.status(400).json({ error: "pubkey must decode to 32 bytes" })
+      return
+    }
+    const message = consumeNonce(nonce)
+    if (!message) {
+      res.status(400).json({ error: "nonce invalid or expired" })
+      return
+    }
+    const sigBytes = Buffer.from(signatureBase64, "base64")
+    if (sigBytes.length !== 64) {
+      res.status(400).json({ error: "signature must decode to 64 bytes" })
+      return
+    }
+    const ok = nacl.sign.detached.verify(
+      new TextEncoder().encode(message),
+      sigBytes,
+      pubkeyBytes,
+    )
+    if (!ok) {
+      audit({ kind: "auth_fail", ip: req.ip, wallet: pubkey, error: "sig_verify_revoke" })
+      res.status(401).json({ error: "signature does not verify" })
+      return
+    }
+    const count = revokeAllForPubkey(pubkey)
+    audit({ kind: "api_key_revoked", ip: req.ip, wallet: pubkey, extra: { mode: "all", count } })
+    res.json({ revoked: count })
+    return
+  }
+
+  res.status(400).json({ error: "mode must be 'self' or 'all'" })
 })
 
-// Frontend confirms after the user signed + the multisig tx confirmed.
-// Server stores the PDAs so future agent ops know where the vault is.
-// (Removed: /sol/grant-confirm — V1.5 Squads autonomous-mode endpoint, frozen
-// for V1d service architecture.)
+// (Removed: /sol/agent + /sol/grant-plan — V1.5 Squads autonomous-mode
+// endpoints. autoyield V1d is service-only (non-custodial advisory + tx
+// builder); we don't need an agent identity or a multisig grant flow.
+// Removing them lets us drop @sqds/multisig from deps, which transitively
+// pulled in 4 high-severity npm vulns via @solana/spl-token →
+// @solana/buffer-layout-utils → bigint-buffer. When V1.5 implements
+// autonomous mode, reintroduce a clean Squads integration in a separate
+// module without the broken old SDK chain.)
 
 // Public sign-page endpoints.
 // /sign/tx/:id  → returns the stashed tx for the sign page to load
@@ -380,6 +365,9 @@ app.get("/sign/tx/:id", readLimiter, (req, res) => {
     symbol: tx.symbol,
     amountUsdc: tx.amountUsdc,
     expectedOut: tx.expectedOut,
+    inputAmount: tx.inputAmount,
+    inputSymbol: tx.inputSymbol,
+    valueUsdEstimate: tx.valueUsdEstimate,
     protocol: tx.protocol,
     unsignedTxBase64: tx.unsignedTxBase64,
     lastValidBlockHeight: tx.lastValidBlockHeight,

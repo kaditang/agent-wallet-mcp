@@ -20,6 +20,10 @@ import { createHash, randomBytes, randomUUID } from "node:crypto"
 
 const STORE_PATH = process.env.AUTH_STORE_PATH ?? "data/api-keys.json"
 const NONCE_TTL_MS = 5 * 60 * 1000
+/** Max active api keys per pubkey. Prevents a malicious user from looping
+ *  sign-in to fill the volume. When over the cap, mintApiKey evicts the
+ *  oldest key for that pubkey (LRU-by-createdAt). */
+const MAX_KEYS_PER_PUBKEY = 10
 
 export type ApiKeyRecord = {
   pubkey: string
@@ -113,6 +117,14 @@ function sha256Hex(s: string): string {
 }
 
 export function mintApiKey(pubkey: string, label?: string): string {
+  // Enforce per-pubkey cap: evict oldest keys for this pubkey if at the limit.
+  const ownedHashes = Object.entries(store.keys)
+    .filter(([, rec]) => rec.pubkey === pubkey)
+    .sort((a, b) => a[1].createdAt - b[1].createdAt) // oldest first
+  while (ownedHashes.length >= MAX_KEYS_PER_PUBKEY) {
+    const [oldestHash] = ownedHashes.shift()!
+    delete store.keys[oldestHash]
+  }
   // 32 bytes -> 64 hex chars. Prefix with "ak_" for visual identification.
   const apiKey = "ak_" + randomBytes(32).toString("hex")
   const hash = sha256Hex(apiKey)
@@ -124,6 +136,28 @@ export function mintApiKey(pubkey: string, label?: string): string {
   }
   flushToDisk()
   return apiKey
+}
+
+/** Revoke a single api key by its plaintext value. Returns true if it existed. */
+export function revokeApiKey(apiKey: string): boolean {
+  const hash = sha256Hex(apiKey)
+  if (!(hash in store.keys)) return false
+  delete store.keys[hash]
+  flushToDisk()
+  return true
+}
+
+/** Revoke all keys belonging to a pubkey. Returns the count revoked. */
+export function revokeAllForPubkey(pubkey: string): number {
+  let count = 0
+  for (const [hash, rec] of Object.entries(store.keys)) {
+    if (rec.pubkey === pubkey) {
+      delete store.keys[hash]
+      count++
+    }
+  }
+  if (count > 0) flushToDisk()
+  return count
 }
 
 /** Look up the pubkey associated with an api key, or null if invalid. */

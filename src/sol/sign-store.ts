@@ -19,9 +19,18 @@ export type SignableTx = {
   kind: "buy_xstock" | "sell_xstock" | "deposit_yield" | "withdraw_yield"
   wallet: string
   ticker?: string
+  /** "Headline" symbol — for buy/deposit this is the OUTPUT (what user gets);
+   *  for sell/withdraw this is the INPUT (what user is selling). */
   symbol?: string
+  /** USDC amount for deposit/buy (input is USDC). undefined for sell/withdraw. */
   amountUsdc?: number
   expectedOut?: number
+  /** What's being spent: amount + symbol. Set for ALL kinds — used by sign page
+   *  to show "Spending X foo" regardless of direction. */
+  inputAmount?: number
+  inputSymbol?: string
+  /** USD value estimate of the trade (for high-value confirm gating). */
+  valueUsdEstimate?: number
   protocol?: string
   unsignedTxBase64: string
   lastValidBlockHeight?: number
