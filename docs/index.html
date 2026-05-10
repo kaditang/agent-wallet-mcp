@@ -157,6 +157,30 @@
         <a class="cta" href="https://github.com/kaditang/agent-wallet-mcp#install">Install in Claude →</a>
       </p>
 
+      <div id="geo-warn" style="display:none;background:rgba(239,68,68,0.1);border:1px solid #ef4444;border-radius:8px;padding:1rem 1.25rem;margin:2rem 0;color:#fca5a5">
+        <strong style="color:#ef4444">Restricted region.</strong>
+        It looks like you're visiting from the United States. The tokenized
+        US equities and treasuries this service references (Backed xStocks,
+        Ondo USDY) are issued under non-U.S. prospectuses by their issuers
+        and are not available to U.S. persons. <b>Do not use this service.</b>
+        <br /><br />
+        See <a href="/terms.html" style="color:#fca5a5">Terms</a> and
+        <a href="/disclaimer.html" style="color:#fca5a5">Disclaimer</a>.
+      </div>
+      <script>
+        // Soft client-side warning. Real geofencing is the issuer's
+        // responsibility (Backed/Ondo restrict at the contract level).
+        // We just nudge users early so nobody wastes time.
+        fetch("https://ipapi.co/json/", { cache: "force-cache" })
+          .then((r) => r.json())
+          .then((d) => {
+            if (d?.country_code === "US") {
+              document.getElementById("geo-warn").style.display = "block"
+            }
+          })
+          .catch(() => {})
+      </script>
+
       <footer>
         Pre-alpha. Open source (MIT). Built by
         <a href="https://github.com/kaditang">@kaditang</a>.

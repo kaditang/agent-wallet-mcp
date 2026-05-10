@@ -32,6 +32,21 @@ if (!checkOriginOrAbort()) {
   throw new Error("blocked by origin check")
 }
 
+// Soft geofence: if visitor appears to be in the US, prepend a banner
+// before they sign anything. Issuers (Backed/Ondo) restrict at contract
+// level too; this is just an early nudge.
+fetch("https://ipapi.co/json/", { cache: "force-cache" })
+  .then((r) => r.json())
+  .then((d) => {
+    if (d?.country_code !== "US") return
+    const banner = document.createElement("div")
+    banner.style.cssText =
+      "max-width:480px;margin:0 auto 1rem;padding:1rem 1.25rem;background:rgba(239,68,68,.1);border:1px solid #ef4444;border-radius:10px;color:#fca5a5;font-size:0.95rem"
+    banner.innerHTML = `<strong style="color:#ef4444">Not for U.S. persons.</strong> The tokens this transaction references are issued under non-U.S. prospectuses. Do not sign.`
+    document.body.insertBefore(banner, document.body.firstChild)
+  })
+  .catch(() => {})
+
 const params = new URLSearchParams(location.search)
 const id = params.get("id")
 const apiOverride = params.get("api")

@@ -6,6 +6,7 @@ import { z } from "zod"
 import { findXStock, SOL_USDC, XSTOCKS } from "../sol/tokens.js"
 import { jupiterQuote, jupiterSwapTx } from "../sol/jupiter.js"
 import { compareYields } from "../sol/yields.js"
+import { getLiveTokenMeta } from "../sol/jupiter-meta.js"
 import { stashSignableTx, getSignBaseUrl } from "../sol/sign-store.js"
 import { audit } from "./audit.js"
 import { getPortfolio } from "../sol/portfolio.js"
@@ -169,7 +170,18 @@ export async function dispatch({
   }
 
   if (name === "list_xstocks") {
-    return text(JSON.stringify({ xstocks: Object.values(XSTOCKS) }, null, 2))
+    // Enrich each entry with live Jupiter liquidity + verified flag (cached 5min).
+    const stocks = Object.values(XSTOCKS)
+    const live = await Promise.all(
+      stocks.map((s) => getLiveTokenMeta(s.mint).catch(() => null)),
+    )
+    const enriched = stocks.map((s, i) => ({
+      ...s,
+      liveLiquidityUsd: live[i]?.liquidityUsd ?? null,
+      isVerified: live[i]?.isVerified ?? null,
+      // Keep the static `liquidityUsd` field as a registry-baseline reference.
+    }))
+    return text(JSON.stringify({ xstocks: enriched }, null, 2))
   }
 
   if (name === "quote_tokenized_stock") {

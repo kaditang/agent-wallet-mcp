@@ -70,6 +70,27 @@ const broadcastLimiter = rateLimit({
   message: { error: "rate limited (10 broadcasts/min)." },
 })
 
+// Health check — used by uptime monitors. Confirms server is up and at least
+// one Solana RPC endpoint responds. Exposed without auth or rate limit.
+app.get("/healthz", async (_req, res) => {
+  const start = Date.now()
+  try {
+    const slot = await withRpcFallback((c) => c.getSlot())
+    res.json({
+      ok: true,
+      slot,
+      rpcLatencyMs: Date.now() - start,
+      uptimeSec: Math.floor(process.uptime()),
+    })
+  } catch (e) {
+    res.status(503).json({
+      ok: false,
+      error: "no Solana RPC reachable",
+      rpcLatencyMs: Date.now() - start,
+    })
+  }
+})
+
 // Solana agent identity — frontend asks "who's the agent I should add?"
 app.get("/sol/agent", readLimiter, (_req, res) => {
   if (!SOL_AGENT_PUBKEY) {
