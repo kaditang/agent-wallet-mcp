@@ -1,5 +1,5 @@
 {
-  "name": "@kadi/agent-wallet-mcp",
+  "name": "@kaditang/agent-wallet-mcp",
   "version": "0.2.0",
   "private": true,
   "type": "module",
@@ -18,7 +18,7 @@
     "yield",
     "defi"
   ],
-  "homepage": "https://github.com/kadi/agent-wallet-mcp",
+  "homepage": "https://github.com/kaditang/agent-wallet-mcp",
   "license": "MIT",
   "main": "dist/server/index.js",
   "bin": {

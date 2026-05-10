@@ -1,5 +1,10 @@
 # agent-wallet-mcp
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Solana](https://img.shields.io/badge/chain-Solana-9945FF.svg)](https://solana.com)
+[![MCP](https://img.shields.io/badge/protocol-MCP-blue.svg)](https://modelcontextprotocol.io)
+[![Status](https://img.shields.io/badge/status-pre--alpha-orange.svg)](https://github.com/kaditang/agent-wallet-mcp)
+
 > A non-custodial RWA service for AI agents on Solana — yield comparison, tokenized US-equity quotes, and ready-to-sign transactions. Funds stay in your wallet; we never sign.
 
 Connect this MCP server to **Claude**, **Cursor**, **Claude Code**, or any MCP-compatible client. Your AI can then:
@@ -26,13 +31,19 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (Claude
   "mcpServers": {
     "agent-wallet": {
       "command": "npx",
-      "args": ["-y", "@your-scope/agent-wallet-mcp"]
+      "args": ["-y", "@kaditang/agent-wallet-mcp"]
     }
   }
 }
 ```
 
-(The npm package is published at — TBD; for now clone this repo and point `command` at `tsx src/server/index.ts`.)
+> The npm package is being published. While that's in progress, clone this repo and run:
+> ```bash
+> git clone https://github.com/kaditang/agent-wallet-mcp.git
+> cd agent-wallet-mcp && npm install
+> npm run mcp:http   # serves on :3030
+> ```
+> Then point your MCP client at `http://localhost:3030/mcp` with a `Authorization: Bearer <your-token>` header (configure tokens in `.env`'s `DEMO_TOKENS`).
 
 ## Tool surface
 

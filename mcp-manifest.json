@@ -5,8 +5,8 @@
   "version": "0.2.0",
   "description": "Connect this MCP and your AI can compare on-chain yields, quote tokenized US equities, and build ready-to-sign Solana transactions for buying / selling Backed xStocks (NVDAx, AAPLx, TSLAx, SPYx) or depositing into Ondo USDY tokenized treasuries. Funds stay in your existing Phantom wallet — we never sign or custody.",
   "tagline": "Your AI's RWA + yield analyst on Solana. Non-custodial.",
-  "homepage": "https://github.com/kadi/agent-wallet-mcp",
-  "repository": "https://github.com/kadi/agent-wallet-mcp",
+  "homepage": "https://github.com/kaditang/agent-wallet-mcp",
+  "repository": "https://github.com/kaditang/agent-wallet-mcp",
   "license": "MIT",
   "author": "kadi",
   "categories": ["finance", "defi", "rwa", "solana", "stocks", "yield"],
@@ -34,7 +34,7 @@
   "install": {
     "stdio": {
       "command": "npx",
-      "args": ["-y", "@kadi/agent-wallet-mcp"]
+      "args": ["-y", "@kaditang/agent-wallet-mcp"]
     },
     "http": {
       "url": "http://localhost:3030/mcp",
