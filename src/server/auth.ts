@@ -56,7 +56,18 @@ declare module "express-serve-static-core" {
 
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
   const auth = req.header("authorization") ?? ""
-  const token = auth.startsWith("Bearer ") ? auth.slice(7) : ""
+  // Accept three formats so we play nice with proxies (e.g. Smithery's
+  // gateway) that can't template a "Bearer " prefix onto user-supplied
+  // params:
+  //   1. `Authorization: Bearer ak_xxx`        ← canonical
+  //   2. `Authorization: ak_xxx`               ← raw api key as the value
+  //   3. `Authorization: Bearer demo-token`    ← DEMO_TOKENS fallback path
+  let token = ""
+  if (auth.startsWith("Bearer ")) {
+    token = auth.slice(7)
+  } else if (auth.startsWith("ak_")) {
+    token = auth
+  }
   if (!token) {
     res.status(401).json({ error: "unauthorized" })
     return
