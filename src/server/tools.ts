@@ -448,10 +448,10 @@ export async function dispatch(
  * cap it. Default ceiling is 1% (100 bps). Caller can pass a tighter cap;
  * we never widen it beyond MAX_SLIPPAGE_BPS_HARD_CAP.
  */
-const DEFAULT_SLIPPAGE_BPS = 50 // 0.5%
-const MAX_SLIPPAGE_BPS_HARD_CAP = 100 // 1.0% — never accept a wider one
+export const DEFAULT_SLIPPAGE_BPS = 50 // 0.5%
+export const MAX_SLIPPAGE_BPS_HARD_CAP = 100 // 1.0% — never accept a wider one
 
-function clampSlippage(requested: number | undefined): number {
+export function clampSlippage(requested: number | undefined): number {
   const eff = requested ?? DEFAULT_SLIPPAGE_BPS
   return Math.min(Math.max(eff, 1), MAX_SLIPPAGE_BPS_HARD_CAP)
 }

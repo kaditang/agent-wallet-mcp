@@ -189,11 +189,17 @@ export class BroadcastLockError extends Error {
  * Run `fn` exclusively for this id — if a broadcast is already in flight,
  * the second caller waits for the first to finish (or fail) and is then told
  * the tx is already broadcasting/done.
+ *
+ * `fn` MUST return the resulting tx signature (string). The lock records the
+ * signature on the stash entry BEFORE releasing — without this, a concurrent
+ * broadcast for the same id could pass both the `tx?.signature == null` and
+ * `tx?.broadcastingAt == null` checks in the gap between fn-resolves and
+ * lock-released, then re-broadcast the same signed bytes through our RPC.
  */
-export async function withBroadcastLock<T>(
+export async function withBroadcastLock(
   id: string,
-  fn: () => Promise<T>,
-): Promise<T> {
+  fn: () => Promise<string>,
+): Promise<string> {
   const tx = STORE.get(id)
   if (tx?.signature) {
     throw new BroadcastLockError("already-broadcast")
@@ -214,7 +220,12 @@ export async function withBroadcastLock<T>(
   }
   const p = (async () => {
     try {
-      return await fn()
+      const sig = await fn()
+      // Lock in the signature BEFORE the finally clears broadcastingAt.
+      // This closes the (sig==null && broadcastingAt==null) window.
+      const t = STORE.get(id)
+      if (t && !t.signature) t.signature = sig
+      return sig
     } finally {
       const t = STORE.get(id)
       if (t) delete t.broadcastingAt

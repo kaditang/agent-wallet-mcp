@@ -145,8 +145,20 @@ function getPhantom(): any {
   return p?.isPhantom ? p : null
 }
 
+function setCardError(msg: string) {
+  // Replace card contents with a single styled error message — using
+  // textContent (not innerHTML) so the message is treated as data, not
+  // markup. The audit flagged every remaining innerHTML in this file
+  // because the card sits next to the signTransaction call.
+  card.replaceChildren()
+  const span = document.createElement("span")
+  span.style.color = "var(--err)"
+  span.textContent = msg
+  card.appendChild(span)
+}
+
 if (!id) {
-  card.innerHTML = `<span style="color:var(--err)">missing ?id= in URL</span>`
+  setCardError("missing ?id= in URL")
   setStatus("err", "Cannot load: no transaction id supplied.")
 } else {
   void load(id)
@@ -159,23 +171,23 @@ async function load(txId: string) {
     r = await fetch(`${apiBase}/sign/tx/${txId}`)
   } catch (e) {
     setStatus("err", `Cannot reach backend at ${apiBase}\n${(e as Error).message}`)
-    card.innerHTML = `<span style="color:var(--err)">backend unreachable</span>`
+    setCardError("backend unreachable")
     return
   }
   if (r.status === 404) {
-    card.innerHTML = `<span style="color:var(--err)">Transaction not found or expired.</span>`
+    setCardError("Transaction not found or expired.")
     setStatus("err", "Try asking your AI to build a fresh transaction.")
     return
   }
   if (!r.ok) {
-    card.innerHTML = `<span style="color:var(--err)">load failed: ${r.status}</span>`
+    setCardError(`load failed: ${r.status}`)
     setStatus("err", await r.text())
     return
   }
   const tx = await r.json()
 
   if (tx.signature) {
-    card.innerHTML = renderCard(tx)
+    renderCardInto(card, tx)
     setStatusWithLinks(
       "ok",
       `Already signed.\nSignature: ${tx.signature}\nhttps://solscan.io/tx/${tx.signature}`,
@@ -185,7 +197,7 @@ async function load(txId: string) {
     return
   }
 
-  card.innerHTML = renderCard(tx)
+  renderCardInto(card, tx)
   btn.disabled = false
   // High-value confirmation: any tx >$50 USD-equivalent (whichever side is
   // USDC — input for buy/deposit, output for sell/withdraw) requires a
@@ -211,9 +223,13 @@ async function load(txId: string) {
   }
 }
 
-function renderCard(tx: any): string {
-  const rows: string[] = []
-  // Action label depends on the direction of the swap.
+function renderCardInto(target: HTMLElement, tx: any): void {
+  // Build the card via DOM API (createElement + textContent) — never via
+  // innerHTML. tx fields come straight off a fetch() response; treating
+  // them as text closes off any XSS in the same DOM that holds the
+  // signTransaction call. Audit P1.
+  target.replaceChildren()
+
   const actionLabel = (() => {
     switch (tx.kind) {
       case "buy_xstock":
@@ -229,38 +245,37 @@ function renderCard(tx: any): string {
           ? `Sell ${tx.inputSymbol} for USDC`
           : "Sell yield token for USDC"
       default:
-        return tx.kind ?? "Transaction"
+        return typeof tx.kind === "string" ? tx.kind : "Transaction"
     }
   })()
-  rows.push(row("Action", actionLabel))
+  target.appendChild(rowEl("Action", actionLabel))
 
   // "Spending" row — uses inputAmount/inputSymbol (unified, works for all 4
   // kinds). Falls back to amountUsdc for older stashed txs that predate
   // the input-fields fix.
-  if (tx.inputAmount != null && tx.inputSymbol) {
-    const amt = formatAmount(tx.inputAmount)
-    rows.push(row("Spending", `${amt} ${tx.inputSymbol}`, true))
-  } else if (tx.amountUsdc != null) {
-    rows.push(row("Spending", `${tx.amountUsdc} USDC`, true))
+  if (tx.inputAmount != null && typeof tx.inputSymbol === "string") {
+    target.appendChild(
+      rowEl("Spending", `${formatAmount(tx.inputAmount)} ${tx.inputSymbol}`, true),
+    )
+  } else if (typeof tx.amountUsdc === "number") {
+    target.appendChild(rowEl("Spending", `${formatAmount(tx.amountUsdc)} USDC`, true))
   }
 
   // "You receive (≈)" row — for buy/deposit shows token; for sell/withdraw
-  // shows USDC. Either way the receive symbol is "the other side" — we use
-  // tx.symbol when it is the output (buy/deposit), or hard-code "USDC" when
-  // tx.symbol is the input (sell/withdraw).
+  // shows USDC.
   if (tx.expectedOut) {
     const isReceiveUsdc =
       tx.kind === "sell_xstock" || tx.kind === "withdraw_yield"
     const receiveSymbol = isReceiveUsdc ? "USDC" : tx.symbol
-    if (receiveSymbol) {
-      const out = formatAmount(tx.expectedOut)
-      rows.push(row("You receive (≈)", `${out} ${receiveSymbol}`, true))
+    if (typeof receiveSymbol === "string") {
+      target.appendChild(
+        rowEl("You receive (≈)", `${formatAmount(tx.expectedOut)} ${receiveSymbol}`, true),
+      )
     }
   }
 
-  rows.push(row("Wallet", shortAddr(tx.wallet, 6, 6)))
-  rows.push(row("Network", "Solana mainnet"))
-  return rows.join("")
+  target.appendChild(rowEl("Wallet", shortAddr(String(tx.wallet ?? ""), 6, 6)))
+  target.appendChild(rowEl("Network", "Solana mainnet"))
 }
 
 function formatAmount(n: number): string {
@@ -272,8 +287,18 @@ function formatAmount(n: number): string {
   return n.toFixed(6).replace(/0+$/, "").replace(/\.$/, "")
 }
 
-function row(label: string, val: string, big = false) {
-  return `<div class="row"><span class="label">${label}</span><span class="val${big ? " big" : ""}">${val}</span></div>`
+function rowEl(label: string, val: string, big = false): HTMLElement {
+  const div = document.createElement("div")
+  div.className = "row"
+  const labelSpan = document.createElement("span")
+  labelSpan.className = "label"
+  labelSpan.textContent = label
+  const valSpan = document.createElement("span")
+  valSpan.className = "val" + (big ? " big" : "")
+  valSpan.textContent = val
+  div.appendChild(labelSpan)
+  div.appendChild(valSpan)
+  return div
 }
 
 async function sign(tx: any) {
@@ -311,13 +336,54 @@ async function sign(tx: any) {
 
   // Always refresh the tx right before signing — Jupiter quotes have
   // ~60s blockhash. If user took >30s to click sign, this prevents expiry.
+  // SECURITY: verify the rebuilt tx has the same id/wallet/kind as what we
+  // rendered. Otherwise a compromised or buggy /sign/rebuild could
+  // substitute wallet-draining bytes after the user already approved
+  // the rendered details. If the expected output drifted >5%, force the
+  // user to re-confirm against the new numbers (re-render the card).
   setStatus("info", "Refreshing transaction (latest blockhash)…")
   try {
     const r = await fetch(`${apiBase}/sign/rebuild/${tx.id}`, { method: "POST" })
     if (r.ok) {
       const fresh = await r.json()
+      // Identity check — the rebuild must be FOR the same tx we showed.
+      if (
+        (typeof fresh.id === "string" && fresh.id !== tx.id) ||
+        (typeof fresh.wallet === "string" && fresh.wallet !== tx.wallet) ||
+        (typeof fresh.kind === "string" && fresh.kind !== tx.kind)
+      ) {
+        setStatus(
+          "err",
+          "Rebuild returned a different transaction. Aborting for safety. Ask your AI to build a fresh one.",
+        )
+        btn.disabled = true
+        btn.textContent = "Aborted"
+        return
+      }
+      // Drift check — if the quote moved by >5%, treat it as a new offer
+      // the user needs to approve. Re-render the card with fresh numbers
+      // and bail out of this sign attempt (user clicks again).
+      if (
+        typeof tx.expectedOut === "number" &&
+        typeof fresh.expectedOut === "number" &&
+        tx.expectedOut > 0
+      ) {
+        const drift = Math.abs(fresh.expectedOut - tx.expectedOut) / tx.expectedOut
+        if (drift > 0.05) {
+          tx.unsignedTxBase64 = fresh.unsignedTxBase64
+          tx.expectedOut = fresh.expectedOut
+          renderCardInto(card, tx)
+          setStatus(
+            "warn",
+            `Quote drifted ${(drift * 100).toFixed(1)}%. Review the updated numbers above and click sign again.`,
+          )
+          btn.disabled = false
+          btn.textContent = "Confirm new quote — Sign in Phantom"
+          return
+        }
+      }
       tx.unsignedTxBase64 = fresh.unsignedTxBase64
-      if (fresh.expectedOut) tx.expectedOut = fresh.expectedOut
+      if (typeof fresh.expectedOut === "number") tx.expectedOut = fresh.expectedOut
     }
   } catch {
     // best-effort; fall through with stashed bytes

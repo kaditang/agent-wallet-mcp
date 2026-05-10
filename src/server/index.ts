@@ -17,6 +17,7 @@ import { requireAuth, reply500 } from "./auth.js"
 import {
   consumeNonce,
   issueNonce,
+  lookupApiKey,
   mintApiKey,
   revokeAllForPubkey,
   revokeApiKey,
@@ -24,12 +25,11 @@ import {
 import { audit } from "./audit.js"
 import nacl from "tweetnacl"
 import bs58 from "bs58"
-import { dispatch as toolDispatch, getToolList } from "./tools.js"
+import { clampSlippage, dispatch as toolDispatch, getToolList } from "./tools.js"
 import { getBalances } from "../sol/balances.js"
 import {
   BroadcastLockError,
   getSignableTx,
-  recordSignature,
   RebuildCapError,
   reserveRebuild,
   updateRebuiltTx,
@@ -197,6 +197,18 @@ app.post("/auth/token", readLimiter, express.urlencoded({ extended: true }), (re
     res.status(400).json({
       error: "invalid_grant",
       error_description: "Code is not a valid autoyield api key.",
+    })
+    return
+  }
+  // Validate that the code resolves to a real (non-revoked) api key. Without
+  // this check the endpoint cheerfully echoed any `ak_*`-shaped string back
+  // as an access_token — strict OAuth clients would treat that as success
+  // and surface a green "authenticated" UI even though requireAuth would
+  // later 401 every actual request. P1 audit finding.
+  if (!lookupApiKey(code)) {
+    res.status(400).json({
+      error: "invalid_grant",
+      error_description: "Code does not match an active api key.",
     })
     return
   }
@@ -418,11 +430,15 @@ app.post("/sign/rebuild/:id", buildLimiter, async (req, res) => {
     const amountAtomic = BigInt(
       Math.round(Number(r.amountInHuman) * 10 ** r.inputDecimals),
     )
+    // Re-clamp the recipe's slippage on rebuild. Defense-in-depth: if the
+    // stash was ever written with a wider slippage (data tampering, future
+    // bug, or a code path that bypasses tools.ts), rebuild still respects
+    // MAX_SLIPPAGE_BPS_HARD_CAP. Audit P1.
     const quote = await jupiterQuote({
       inputMint: r.inputMint,
       outputMint: r.outputMint,
       amountAtomic,
-      slippageBps: r.slippageBps,
+      slippageBps: clampSlippage(r.slippageBps),
     })
     const fresh = await jupiterSwapTx({ quote, userPublicKey: tx.wallet })
     const expectedOut = Number(quote.outAmount) / 10 ** r.outputDecimals
@@ -431,7 +447,14 @@ app.post("/sign/rebuild/:id", buildLimiter, async (req, res) => {
       lastValidBlockHeight: fresh.lastValidBlockHeight,
       expectedOut,
     })
+    // Echo back id/wallet/kind so the sign page can verify the rebuild
+    // didn't morph into an unrelated tx. Audit P1: prevents a
+    // compromised/buggy rebuild from substituting wallet-draining bytes
+    // after the user already approved the rendered details.
     res.json({
+      id: tx.id,
+      wallet: tx.wallet,
+      kind: tx.kind,
       unsignedTxBase64: fresh.swapTransactionBase64,
       lastValidBlockHeight: fresh.lastValidBlockHeight,
       expectedOut,
@@ -505,12 +528,12 @@ app.post("/sign/broadcast", broadcastLimiter, async (req, res) => {
       symbol: stashed.symbol,
     })
     // Lock per id — second submission for the same id immediately rejects.
+    // Signature is recorded INSIDE the lock; no separate recordSignature call.
     const sig = await withBroadcastLock(id, async () =>
       withRpcFallback((c) =>
         c.sendRawTransaction(raw, { skipPreflight: false, maxRetries: 5 }),
       ),
     )
-    recordSignature(id, sig)
     audit({
       kind: "broadcast_success",
       ip: req.ip,
