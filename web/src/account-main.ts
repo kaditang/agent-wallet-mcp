@@ -41,10 +41,45 @@ if (!ALLOWED_HOSTS.has(location.hostname)) {
 // has no legitimate prod use. Keep it on localhost for dev only.
 const isLocalhost =
   location.hostname === "localhost" || location.hostname === "127.0.0.1"
-const apiOverride = isLocalhost
-  ? new URLSearchParams(location.search).get("api")
-  : null
+const params = new URLSearchParams(location.search)
+const apiOverride = isLocalhost ? params.get("api") : null
 const apiBase = (apiOverride ?? DEFAULT_API).replace(/\/$/, "")
+
+// OAuth 2.1 authorization code flow bridge. When an MCP client (Smithery
+// gateway, future spec-strict clients) redirects the user here, they pass:
+//   ?response_type=code&redirect_uri=...&state=...&client_id=...&code_challenge=...
+// On successful Phantom Sign-In we mint an api key, then redirect to
+//   redirect_uri?code=<apiKey>&state=<state>
+// The "code" IS the api key — /auth/token unwraps it transparently.
+//
+// SECURITY: redirect_uri is attacker-controlled, so we restrict to known
+// MCP-gateway hosts. Unknown hosts get a confirmation prompt before
+// redirect (so a phishing site can't steal a user's key by setting
+// redirect_uri to attacker.com).
+const oauthFlow = (() => {
+  const responseType = params.get("response_type")
+  const redirectUri = params.get("redirect_uri")
+  const state = params.get("state") ?? ""
+  if (responseType !== "code" || !redirectUri) return null
+  return { redirectUri, state }
+})()
+
+const KNOWN_MCP_GATEWAY_HOSTS = [
+  "smithery.run",
+  "smithery.ai",
+  "localhost",
+  "127.0.0.1",
+]
+function redirectIsTrusted(uri: string): boolean {
+  try {
+    const u = new URL(uri)
+    return KNOWN_MCP_GATEWAY_HOSTS.some(
+      (h) => u.hostname === h || u.hostname.endsWith("." + h),
+    )
+  } catch {
+    return false
+  }
+}
 
 const btn = document.getElementById("signin") as HTMLButtonElement
 const statusEl = document.getElementById("status") as HTMLDivElement
@@ -155,6 +190,33 @@ btn.addEventListener("click", async () => {
     setStatus("err", `Verify failed: ${e.message ?? e}`)
     btn.disabled = false
     btn.textContent = "Connect Phantom & get API key"
+    return
+  }
+
+  // OAuth flow: redirect back to the MCP client's callback URL with the
+  // api key as the authorization code. Skip showing the key page since
+  // the client will exchange it server-side.
+  if (oauthFlow) {
+    const callback = new URL(oauthFlow.redirectUri)
+    callback.searchParams.set("code", apiKey)
+    if (oauthFlow.state) callback.searchParams.set("state", oauthFlow.state)
+    if (redirectIsTrusted(oauthFlow.redirectUri)) {
+      setStatus(
+        "ok",
+        `Signed in as ${pubkey.slice(0, 6)}…${pubkey.slice(-6)}\nReturning to ${callback.host}…`,
+      )
+      window.location.replace(callback.toString())
+      return
+    }
+    // Untrusted redirect: show user a consent prompt before sending the key.
+    btn.textContent = "Continue"
+    setStatus(
+      "warn",
+      `An app at ${callback.host} is asking to receive your autoyield API key.\nThis grants it full access to build transactions on your wallet's behalf.\n(You still sign every tx in Phantom — this just controls who can ask.)\n\nIf you didn't expect this, close the tab.`,
+    )
+    btn.onclick = () => {
+      window.location.replace(callback.toString())
+    }
     return
   }
 

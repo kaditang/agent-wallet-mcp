@@ -138,7 +138,7 @@ app.get("/.well-known/oauth-authorization-server", readLimiter, (_req, res) => {
   res.json({
     issuer: ORIGIN,
     authorization_endpoint: ACCOUNT_PAGE,
-    token_endpoint: `${ORIGIN}/auth/token-stub`,
+    token_endpoint: `${ORIGIN}/auth/token`,
     registration_endpoint: `${ORIGIN}/register`,
     response_types_supported: ["code"],
     grant_types_supported: ["authorization_code"],
@@ -162,16 +162,39 @@ app.post("/register", readLimiter, (req, res) => {
   })
 })
 
-// Token endpoint stub — never reached in practice because users provide a
-// pre-issued ak_ key in the Authorization header. If a client tries this
-// path we return a clear "use the API key from /account.html" error.
-app.post("/auth/token-stub", readLimiter, (_req, res) => {
-  res.status(400).json({
-    error: "unsupported_grant_type",
-    error_description:
-      "autoyield uses Phantom Sign-In: get an ak_ key at " +
-      ACCOUNT_PAGE +
-      " and pass it as `Authorization: Bearer <key>` directly.",
+// OAuth 2.1 token endpoint. The "code" the client receives from the
+// authorization endpoint (autoyield.org/account.html callback) IS the api
+// key — minted server-side after the user signed a Phantom challenge. So
+// this endpoint just unwraps it as the access_token; there's no separate
+// token to mint, no refresh token (the api key has its own server-side
+// lifecycle), and PKCE verifier is accepted but not validated (a stolen
+// auth code that's a stolen api key is already game-over for that user).
+app.post("/auth/token", readLimiter, express.urlencoded({ extended: true }), (req, res) => {
+  // Body can be x-www-form-urlencoded (per RFC 6749) or JSON.
+  const body = req.body ?? {}
+  const grant = String(body.grant_type ?? "")
+  const code = String(body.code ?? "")
+  if (grant !== "authorization_code") {
+    res.status(400).json({
+      error: "unsupported_grant_type",
+      error_description: "Only authorization_code is supported.",
+    })
+    return
+  }
+  if (!code.startsWith("ak_")) {
+    res.status(400).json({
+      error: "invalid_grant",
+      error_description: "Code is not a valid autoyield api key.",
+    })
+    return
+  }
+  // The code IS the access token. Return as Bearer with a long-ish ttl
+  // (api keys don't expire on their own; we revoke server-side if needed).
+  res.json({
+    access_token: code,
+    token_type: "Bearer",
+    expires_in: 60 * 60 * 24 * 365, // 1 year nominal; real lifecycle is server-side
+    scope: "mcp",
   })
 })
 
