@@ -54,6 +54,11 @@ declare module "express-serve-static-core" {
   }
 }
 
+// RFC 6750: 401 responses on protected resources should include
+// WWW-Authenticate so clients know the scheme. Without this header,
+// Smithery's gateway falls back to assuming OAuth — and gets stuck.
+const WWW_AUTH = 'Bearer realm="autoyield-mcp", error="invalid_token"'
+
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
   const auth = req.header("authorization") ?? ""
   // Accept three formats so we play nice with proxies (e.g. Smithery's
@@ -69,6 +74,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
     token = auth
   }
   if (!token) {
+    res.set("WWW-Authenticate", WWW_AUTH)
     res.status(401).json({ error: "unauthorized" })
     return
   }
@@ -88,5 +94,6 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
     next()
     return
   }
+  res.set("WWW-Authenticate", WWW_AUTH)
   res.status(401).json({ error: "unauthorized" })
 }

@@ -137,20 +137,23 @@ const ACCOUNT_PAGE = process.env.WEB_BASE_URL
 //     it (it falls through to /register stub for client info).
 //   - /register and /auth/token stubs stay in case a strict OAuth client
 //     does drive past discovery — they DO produce a usable token.
+// Both well-known endpoints return 404. Smithery interprets the mere
+// presence of /.well-known/oauth-protected-resource as "this resource
+// requires OAuth dance" and refuses to use a static apiKey path even
+// when one is provided. mcp-remote tested OK without these endpoints —
+// it falls back to using the configured --header.
+//
+// The actual auth contract is signaled by:
+//   - 401 responses include `WWW-Authenticate: Bearer realm="autoyield"`
+//     (RFC 6750) — this is the standard way to say "send a Bearer token".
+//   - /register and /auth/token stubs remain for any strict OAuth client
+//     that pushes past discovery.
 app.get("/.well-known/oauth-protected-resource", readLimiter, (_req, res) => {
-  res.json({
-    resource: ORIGIN,
-    bearer_methods_supported: ["header"],
-    scopes_supported: ["mcp"],
-    // No `authorization_servers` field on purpose — see comment above.
-  })
+  res.status(404).json({ error: "not_found" })
 })
 
 app.get("/.well-known/oauth-authorization-server", readLimiter, (_req, res) => {
-  // Intentional 404: not advertising an OAuth authorization server.
-  // Static Bearer key (ak_<hex>) is the only auth path. Clients that hit
-  // this URL fall back to using whatever Bearer they were configured with.
-  res.status(404).json({ error: "no_authorization_server" })
+  res.status(404).json({ error: "not_found" })
 })
 
 // Dynamic client registration stub. Returns a random client_id; mcp-remote
