@@ -24,7 +24,12 @@
   "bin": {
     "agent-wallet-mcp": "./dist/server/index.js"
   },
-  "files": ["dist", "README.md", "mcp-manifest.json", "assets"],
+  "files": [
+    "dist",
+    "README.md",
+    "mcp-manifest.json",
+    "assets"
+  ],
   "scripts": {
     "mcp:http": "tsx src/server/index.ts",
     "mcp:stdio": "tsx src/server/stdio.ts",
@@ -36,16 +41,12 @@
     "@solana/web3.js": "^1.98.4",
     "@sqds/multisig": "^2.1.4",
     "@types/cors": "^2.8.19",
-    "@zerodev/ecdsa-validator": "^5.4.3",
-    "@zerodev/permissions": "^5.5.5",
-    "@zerodev/sdk": "^5.4.10",
     "bs58": "^6.0.0",
     "cors": "^2.8.6",
     "dotenv": "^16.4.5",
     "express": "^4.21.1",
+    "express-rate-limit": "^8.5.1",
     "tslib": "^2.8.1",
-    "viem": "^2.28.0",
-    "yahoo-finance2": "^3.14.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {

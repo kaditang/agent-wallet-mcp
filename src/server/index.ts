@@ -1,6 +1,7 @@
 import "dotenv/config"
 import express from "express"
 import cors from "cors"
+import rateLimit from "express-rate-limit"
 import { Server } from "@modelcontextprotocol/sdk/server/index.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js"
 import {
@@ -8,15 +9,8 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js"
 import { z } from "zod"
-import { privateKeyToAccount } from "viem/accounts"
-import type { Hex } from "viem"
 import { requireAuth } from "./auth.js"
-import { getUser, putUser } from "../store/users.js"
 import { dispatch as toolDispatch, getToolList } from "./tools.js"
-import { x402 } from "../x402/middleware.js"
-import { runPreflight } from "../risk/aggregate.js"
-import { buildEquityBrief } from "../equity/brief.js"
-import { chain } from "../config.js"
 import { getBalances } from "../sol/balances.js"
 import { getSignableTx, recordSignature } from "../sol/sign-store.js"
 import { SOL_AGENT_PUBKEY } from "../sol/agent.js"
@@ -24,8 +18,6 @@ import {
   buildCreateMultisigIxs,
   freshCreateKey,
   getProgramConfigPda,
-  getMultisigPda,
-  getVaultPda,
   Period,
 } from "../sol/squads.js"
 import { PublicKey, Transaction } from "@solana/web3.js"
@@ -33,17 +25,47 @@ import { SOL_USDC, XSTOCKS } from "../sol/tokens.js"
 import { solConn } from "../sol/connection.js"
 
 const app = express()
+
+// CORS — open by default but restrictable. Production should set
+// ALLOWED_ORIGINS to a comma-separated list (e.g. "https://autoyield.org").
+const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean)
 app.use(
   cors({
-    origin: true,
+    origin: allowedOrigins.length > 0 ? allowedOrigins : true,
     credentials: false,
     allowedHeaders: ["Content-Type", "Authorization"],
   }),
 )
-app.use(express.json({ limit: "1mb" }))
+app.use(express.json({ limit: "256kb" }))
+
+// Rate limits — defense against simple flooding. Tune as we observe traffic.
+const readLimiter = rateLimit({
+  windowMs: 60_000, // 1 min
+  limit: 60, // 60 reads/min/IP
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "rate limited (60 req/min). Slow down." },
+})
+const buildLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 20, // 20 unsigned-tx builds per min — Jupiter quote calls are paid by us
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "rate limited (20 builds/min). Slow down." },
+})
+const broadcastLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 10, // 10 broadcasts per min — protects RPC quota
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "rate limited (10 broadcasts/min)." },
+})
 
 // Solana agent identity — frontend asks "who's the agent I should add?"
-app.get("/sol/agent", (_req, res) => {
+app.get("/sol/agent", readLimiter, (_req, res) => {
   if (!SOL_AGENT_PUBKEY) {
     res.status(500).json({ error: "SOL_AGENT_PUBKEY not configured" })
     return
@@ -54,7 +76,7 @@ app.get("/sol/agent", (_req, res) => {
 // Build the unsigned create-multisig transaction. The frontend asks for it,
 // has the user sign with Phantom, and sends it. Server returns the PDAs the
 // agent will need to track later.
-app.post("/sol/grant-plan", requireAuth, async (req, res) => {
+app.post("/sol/grant-plan", readLimiter, requireAuth, async (req, res) => {
   if (!SOL_AGENT_PUBKEY) {
     res.status(500).json({ error: "SOL_AGENT_PUBKEY not configured" })
     return
@@ -136,43 +158,14 @@ app.post("/sol/grant-plan", requireAuth, async (req, res) => {
 
 // Frontend confirms after the user signed + the multisig tx confirmed.
 // Server stores the PDAs so future agent ops know where the vault is.
-const grantConfirmSchema = z.object({
-  owner: z.string().min(32).max(44),
-  multisigPda: z.string().min(32).max(44),
-  vaultPda: z.string().min(32).max(44),
-  createKey: z.string().min(32).max(44),
-  spendingLimitCreateKey: z.string().min(32).max(44).optional(),
-  txSignature: z.string().min(32),
-})
-
-app.post("/sol/grant-confirm", requireAuth, async (req, res) => {
-  const parsed = grantConfirmSchema.safeParse(req.body)
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.flatten() })
-    return
-  }
-  const existing = await getUser(req.userId!)
-  await putUser({
-    userId: req.userId!,
-    ...(existing ?? {}),
-    solana: {
-      owner: parsed.data.owner,
-      multisigPda: parsed.data.multisigPda,
-      vaultPda: parsed.data.vaultPda,
-      createKey: parsed.data.createKey,
-      spendingLimitCreateKey: parsed.data.spendingLimitCreateKey,
-      txSignature: parsed.data.txSignature,
-    },
-    createdAt: existing?.createdAt ?? Date.now(),
-  })
-  res.json({ ok: true })
-})
+// (Removed: /sol/grant-confirm — V1.5 Squads autonomous-mode endpoint, frozen
+// for V1d service architecture.)
 
 // Public sign-page endpoints.
 // /sign/tx/:id  → returns the stashed tx for the sign page to load
 // /sign/confirm → sign page POSTs back the signature once Phantom signed+sent
-app.get("/sign/tx/:id", (req, res) => {
-  const tx = getSignableTx(req.params.id)
+app.get("/sign/tx/:id", readLimiter, (req, res) => {
+  const tx = getSignableTx(String(req.params.id))
   if (!tx) {
     res.status(404).json({ error: "tx not found or expired" })
     return
@@ -194,8 +187,8 @@ app.get("/sign/tx/:id", (req, res) => {
 
 // Rebuild a fresh swap tx for an existing sign id — used when the stashed tx
 // has aged out (blockhash expired). Same recipe, fresh quote + new blockhash.
-app.post("/sign/rebuild/:id", async (req, res) => {
-  const tx = getSignableTx(req.params.id)
+app.post("/sign/rebuild/:id", buildLimiter, async (req, res) => {
+  const tx = getSignableTx(String(req.params.id))
   if (!tx) {
     res.status(404).json({ error: "tx not found or expired" })
     return
@@ -231,7 +224,7 @@ app.post("/sign/rebuild/:id", async (req, res) => {
   }
 })
 
-app.post("/sign/confirm", (req, res) => {
+app.post("/sign/confirm", readLimiter, (req, res) => {
   const { id, signature } = req.body ?? {}
   if (typeof id !== "string" || typeof signature !== "string") {
     res.status(400).json({ error: "id and signature required" })
@@ -248,14 +241,41 @@ app.post("/sign/confirm", (req, res) => {
 // Broadcast a CLIENT-SIGNED tx via our backend's reliable RPC. Used when
 // Phantom's `signAndSendTransaction` broadcast is unreliable; the sign page
 // instead uses `signTransaction` (sign only) and POSTs the signed bytes here.
-app.post("/sign/broadcast", async (req, res) => {
-  const { signedTxBase64 } = req.body ?? {}
-  if (typeof signedTxBase64 !== "string") {
-    res.status(400).json({ error: "signedTxBase64 required" })
+//
+// SECURITY: we require a sign-store id and verify the unsigned message bytes
+// in the submitted tx match the tx we stashed. This prevents arbitrary
+// 3rd-party txs from being broadcast through our RPC quota.
+app.post("/sign/broadcast", broadcastLimiter, async (req, res) => {
+  const { id, signedTxBase64 } = req.body ?? {}
+  if (typeof id !== "string" || typeof signedTxBase64 !== "string") {
+    res.status(400).json({ error: "id and signedTxBase64 required" })
+    return
+  }
+  const stashed = getSignableTx(id)
+  if (!stashed) {
+    res.status(404).json({ error: "tx id not found or expired" })
     return
   }
   try {
     const raw = Buffer.from(signedTxBase64, "base64")
+    const stashedRaw = Buffer.from(stashed.unsignedTxBase64, "base64")
+
+    // VersionedTransaction format: [signatures...][message bytes].
+    // Signatures section length = num_signatures (compact-u16) + 64 * num_signatures.
+    // We compare the message bytes only — those must equal what we built.
+    const msgFromSigned = extractVersionedMessage(raw)
+    const msgFromStashed = extractVersionedMessage(stashedRaw)
+    if (
+      !msgFromSigned ||
+      !msgFromStashed ||
+      !msgFromSigned.equals(msgFromStashed)
+    ) {
+      res.status(400).json({
+        error: "signed tx message does not match the stashed unsigned tx",
+      })
+      return
+    }
+
     const sig = await solConn.sendRawTransaction(raw, {
       skipPreflight: false,
       maxRetries: 5,
@@ -266,8 +286,31 @@ app.post("/sign/broadcast", async (req, res) => {
   }
 })
 
+// Decode the compact-u16 num_signatures prefix and skip past signatures to
+// reach the message bytes. Returns null if the buffer is malformed.
+function extractVersionedMessage(buf: Buffer): Buffer | null {
+  if (buf.length < 1) return null
+  // compact-u16 decode
+  let offset = 0
+  let len = 0
+  let shift = 0
+  while (offset < buf.length) {
+    const b = buf[offset]
+    offset++
+    len |= (b & 0x7f) << shift
+    if ((b & 0x80) === 0) break
+    shift += 7
+    if (shift > 14) return null
+  }
+  // Skip num_signatures × 64 bytes
+  const sigsLen = len * 64
+  const msgStart = offset + sigsLen
+  if (msgStart > buf.length) return null
+  return buf.subarray(msgStart)
+}
+
 // Public read-only Solana balance lookup. No auth — anyone can query any address.
-app.get("/sol/balances", async (req, res) => {
+app.get("/sol/balances", readLimiter, async (req, res) => {
   const addr = (req.query.address ?? "").toString()
   if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(addr)) {
     res.status(400).json({ error: "invalid base58 address" })
@@ -281,44 +324,11 @@ app.get("/sol/balances", async (req, res) => {
   }
 })
 
-const sessionPk = process.env.AGENT_SESSION_PK as Hex
-const sessionPubkey = sessionPk ? privateKeyToAccount(sessionPk).address : ""
-
-// The frontend asks "what session pubkey should I authorize?" — we expose it
-// so the user's wallet signs an enable for THIS pubkey.
-app.get("/session-pubkey", requireAuth, (_req, res) => {
-  res.json({ sessionPubkey })
-})
-
-// Frontend posts the signed approval back here once the user grants in their wallet.
-const grantSchema = z.object({
-  accountAddress: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
-  approval: z.string().min(1),
-  sessionPubkey: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
-})
-
-app.post("/grant", requireAuth, async (req, res) => {
-  const parsed = grantSchema.safeParse(req.body)
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.flatten() })
-    return
-  }
-  if (parsed.data.sessionPubkey.toLowerCase() !== sessionPubkey.toLowerCase()) {
-    res.status(400).json({ error: "session pubkey mismatch" })
-    return
-  }
-  await putUser({
-    userId: req.userId!,
-    accountAddress: parsed.data.accountAddress as Hex,
-    approval: parsed.data.approval,
-    sessionPubkey: parsed.data.sessionPubkey as Hex,
-    createdAt: Date.now(),
-  })
-  res.json({ ok: true })
-})
+// (Removed: /session-pubkey, /grant — legacy EVM ZeroDev grant endpoints,
+// not used by V1d service architecture.)
 
 // MCP transport. Stateless: V1 service tools take wallet as an arg, no per-user state.
-app.post("/mcp", requireAuth, async (req, res) => {
+app.post("/mcp", buildLimiter, requireAuth, async (req, res) => {
   const server = new Server(
     { name: "agent-wallet", version: "0.2.0" },
     { capabilities: { tools: {} } },
@@ -337,105 +347,11 @@ app.post("/mcp", requireAuth, async (req, res) => {
   await transport.handleRequest(req, res, req.body)
 })
 
-// --- Demo paid endpoint guarded by x402 -------------------------------------
-// Any request to /paid-tool/echo MUST first transfer 0.1 USDC to PAY_TO.
-// In production, payTo would be the merchant's address. For demo, the user
-// sets PAY_TO in .env (e.g. their owner wallet).
-const PAY_TO = (process.env.PAY_TO ?? "") as Hex
-
-if (PAY_TO) {
-  app.post(
-    "/paid-tool/echo",
-    x402({ amountUsdc: "0.1", payTo: PAY_TO, description: "echo what you sent" }),
-    (req, res) => {
-      res.json({
-        echoed: req.body,
-        receivedAt: new Date().toISOString(),
-        paidTxHash: req.header("x-payment-tx"),
-      })
-    },
-  )
-
-  // ===== Pre-flight Risk Gate — the flagship paid product =====
-  // Aggregates Tenderly + GoPlus + Blockaid + OFAC + calldata decoding into a
-  // single verdict. Any agent should call this before sending a userOp.
-  // Free for callers who post X-Payment-Tx; charges 0.02 USDC otherwise.
-  const preflightSchema = z.object({
-    from: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
-    chainId: z.number().int().optional(),
-    calls: z
-      .array(
-        z.object({
-          to: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
-          data: z.string().regex(/^0x[a-fA-F0-9]*$/),
-          value: z.string().optional(),
-        }),
-      )
-      .min(1)
-      .max(10),
-  })
-
-  // ===== Paid equity research brief =====
-  // 0.10 USDC per call. Aggregates Yahoo Finance fundamentals, latest SEC
-  // filings, and known tokenized counterparts. The downstream LLM uses this
-  // to write its bull/bear thesis before placing a trade.
-  app.post(
-    "/paid/equity-brief",
-    x402({
-      amountUsdc: "0.10",
-      payTo: PAY_TO,
-      description: "structured equity research brief: Yahoo fundamentals + SEC filings + tokenized listings",
-    }),
-    async (req, res) => {
-      const ticker = (req.body?.ticker ?? "").toString().trim()
-      if (!/^[A-Za-z.\-]{1,8}$/.test(ticker)) {
-        res.status(400).json({ error: "ticker must be 1-8 letters" })
-        return
-      }
-      try {
-        const brief = await buildEquityBrief(ticker)
-        res.json(brief)
-      } catch (e) {
-        res.status(500).json({ error: (e as Error).message })
-      }
-    },
-  )
-
-  app.post(
-    "/risk/preflight",
-    x402({
-      amountUsdc: "0.02",
-      payTo: PAY_TO,
-      description: "pre-flight risk gate: aggregates Tenderly + GoPlus + Blockaid + OFAC + calldata decoding into one verdict",
-    }),
-    async (req, res) => {
-      const parsed = preflightSchema.safeParse(req.body)
-      if (!parsed.success) {
-        res.status(400).json({ error: parsed.error.flatten() })
-        return
-      }
-      try {
-        const result = await runPreflight({
-          from: parsed.data.from as Hex,
-          chainId: parsed.data.chainId ?? chain.id,
-          calls: parsed.data.calls.map((c) => ({
-            to: c.to as Hex,
-            data: c.data as Hex,
-            value: c.value ? BigInt(c.value) : 0n,
-          })),
-        })
-        res.json(result)
-      } catch (e) {
-        res.status(500).json({ error: (e as Error).message })
-      }
-    },
-  )
-}
+// (Removed: /paid-tool/echo, /paid/equity-brief, /risk/preflight — legacy EVM
+// x402 demo endpoints. Frozen for V1d service architecture; reusable patterns
+// for V2 paid-API monetization layer.)
 
 const port = Number(process.env.PORT ?? 3030)
 app.listen(port, () => {
-  console.log(`http mcp listening on :${port}`)
-  console.log(`session pubkey: ${sessionPubkey}`)
-  if (PAY_TO) console.log(`paid demo: POST /paid-tool/echo, payTo=${PAY_TO}`)
-  else console.log(`(set PAY_TO=0x... in .env to enable /paid-tool/echo)`)
+  console.log(`autoyield mcp service listening on :${port}`)
 })

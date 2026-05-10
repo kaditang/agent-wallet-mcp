@@ -173,7 +173,7 @@ async function sign(tx: any) {
     const r = await fetch(`${apiBase}/sign/broadcast`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ signedTxBase64 }),
+      body: JSON.stringify({ id: tx.id, signedTxBase64 }),
     })
     if (!r.ok) {
       throw new Error(`broadcast failed: ${r.status} ${await r.text()}`)

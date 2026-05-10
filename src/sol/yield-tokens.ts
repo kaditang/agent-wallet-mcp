@@ -1,8 +1,6 @@
 // Yield-bearing tokenized assets — separate from xStocks because they're
 // stables/treasury exposures, not equities. All swap-routable via Jupiter.
 
-import type { Hex } from "viem"
-
 export type YieldToken = {
   /** External-friendly slug used in MCP tool args. */
   slug: "usdy" | "usdm"
