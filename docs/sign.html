@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Approve Transaction</title>
+    <style>
+      :root {
+        --bg: #0e0e10;
+        --surface: #18181b;
+        --border: #2a2a30;
+        --text: #fafafa;
+        --muted: #9ca3af;
+        --accent: #6638e8;
+        --accent-hover: #5a2dd6;
+        --ok: #22c55e;
+        --err: #ef4444;
+        --warn: #f59e0b;
+      }
+      * { box-sizing: border-box; }
+      body {
+        font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+        max-width: 480px;
+        margin: 0 auto;
+        padding: 2.5rem 1rem;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.5;
+      }
+      h1 { margin: 0 0 0.5rem; font-size: 1.5rem; }
+      .sub { color: var(--muted); margin: 0 0 2rem; font-size: 0.95rem; }
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 1.25rem 1.5rem;
+        margin: 1rem 0;
+      }
+      .row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.5rem 0;
+        border-bottom: 1px solid var(--border);
+        font-size: 0.95rem;
+      }
+      .row:last-child { border-bottom: 0; }
+      .label { color: var(--muted); }
+      .val { font-weight: 600; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+      .val.big { font-size: 1.1rem; color: var(--accent); }
+      button {
+        background: var(--accent);
+        color: white;
+        border: 0;
+        padding: 0.95rem 1.25rem;
+        font-size: 1rem;
+        font-weight: 600;
+        border-radius: 10px;
+        cursor: pointer;
+        width: 100%;
+        transition: background 0.15s;
+      }
+      button:hover:not(:disabled) { background: var(--accent-hover); }
+      button:disabled { background: #444; color: #888; cursor: not-allowed; }
+      .status {
+        margin-top: 1rem;
+        padding: 0.85rem 1rem;
+        border-radius: 8px;
+        font-size: 0.9rem;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        white-space: pre-wrap;
+        word-break: break-all;
+        min-height: 2.4rem;
+      }
+      .status.ok { border-color: var(--ok); color: var(--ok); }
+      .status.err { border-color: var(--err); color: var(--err); }
+      .status.warn { border-color: var(--warn); color: var(--warn); }
+      .status a { color: inherit; }
+      .footer {
+        margin-top: 2rem;
+        text-align: center;
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+      .skel { color: var(--muted); }
+    </style>
+    <script type="module" crossorigin src="/assets/sign-TaO1F2Wb.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/index.browser.esm-Db3yRO_P.js">
+  </head>
+  <body>
+    <h1>Approve transaction</h1>
+    <p class="sub">
+      Your AI prepared this. Review the details, then sign in Phantom. We never
+      hold your keys or funds.
+    </p>
+
+    <div id="card" class="card skel">Loading transaction…</div>
+
+    <button id="sign" disabled>Connect Phantom &amp; Sign</button>
+
+    <div id="status" class="status">Ready.</div>
+
+    <div class="footer">
+      Non-custodial. The transaction is signed and sent from your wallet.
+    </div>
+
+  </body>
+</html>

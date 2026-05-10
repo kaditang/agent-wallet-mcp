@@ -1,5 +1,6 @@
 import { defineConfig } from "vite"
 import { nodePolyfills } from "vite-plugin-node-polyfills"
+import { resolve } from "node:path"
 
 export default defineConfig({
   plugins: [
@@ -9,4 +10,14 @@ export default defineConfig({
     }),
   ],
   server: { port: 5173 },
+  build: {
+    outDir: "dist",
+    emptyOutDir: true,
+    rollupOptions: {
+      input: {
+        sign: resolve(__dirname, "sign.html"),
+        solana: resolve(__dirname, "solana.html"),
+      },
+    },
+  },
 })
