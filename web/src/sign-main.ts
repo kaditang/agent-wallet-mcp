@@ -83,7 +83,58 @@ function setStatus(kind: StatusKind, msg: string) {
   statusEl.textContent = msg
 }
 function appendStatus(msg: string) {
-  statusEl.textContent = (statusEl.textContent ?? "") + "\n" + msg
+  // Preserve existing children (which may contain <a> links from
+  // setStatusWithLinks) by appending text + auto-linkified URLs to the tail.
+  const URL_RE = /https?:\/\/\S+/g
+  statusEl.appendChild(document.createTextNode("\n"))
+  let lastIdx = 0
+  for (const match of msg.matchAll(URL_RE)) {
+    const start = match.index ?? 0
+    if (start > lastIdx) {
+      statusEl.appendChild(document.createTextNode(msg.slice(lastIdx, start)))
+    }
+    const a = document.createElement("a")
+    a.href = match[0]
+    a.target = "_blank"
+    a.rel = "noopener noreferrer"
+    a.textContent = match[0]
+    a.style.color = "inherit"
+    a.style.textDecoration = "underline"
+    statusEl.appendChild(a)
+    lastIdx = start + match[0].length
+  }
+  if (lastIdx < msg.length) {
+    statusEl.appendChild(document.createTextNode(msg.slice(lastIdx)))
+  }
+}
+/**
+ * Linkify any solscan / autoyield URLs in a status message. URL parts get
+ * <a target="_blank"> via createElement (no innerHTML — XSS-safe even though
+ * the values come from our backend); everything else stays as text node.
+ */
+function setStatusWithLinks(kind: StatusKind, msg: string) {
+  statusEl.className = `status${kind === "info" ? "" : " " + kind}`
+  statusEl.replaceChildren()
+  const URL_RE = /https?:\/\/\S+/g
+  let lastIdx = 0
+  for (const match of msg.matchAll(URL_RE)) {
+    const start = match.index ?? 0
+    if (start > lastIdx) {
+      statusEl.appendChild(document.createTextNode(msg.slice(lastIdx, start)))
+    }
+    const a = document.createElement("a")
+    a.href = match[0]
+    a.target = "_blank"
+    a.rel = "noopener noreferrer"
+    a.textContent = match[0]
+    a.style.color = "inherit"
+    a.style.textDecoration = "underline"
+    statusEl.appendChild(a)
+    lastIdx = start + match[0].length
+  }
+  if (lastIdx < msg.length) {
+    statusEl.appendChild(document.createTextNode(msg.slice(lastIdx)))
+  }
 }
 function shortAddr(a: string, lead = 6, tail = 6) {
   return a.length > lead + tail + 1 ? `${a.slice(0, lead)}…${a.slice(-tail)}` : a
@@ -125,7 +176,7 @@ async function load(txId: string) {
 
   if (tx.signature) {
     card.innerHTML = renderCard(tx)
-    setStatus(
+    setStatusWithLinks(
       "ok",
       `Already signed.\nSignature: ${tx.signature}\nhttps://solscan.io/tx/${tx.signature}`,
     )
@@ -288,7 +339,7 @@ async function sign(tx: any) {
     return
   }
 
-  setStatus(
+  setStatusWithLinks(
     "ok",
     `Submitted.\nSignature: ${signature}\nhttps://solscan.io/tx/${signature}\n\nWaiting for confirmation…`,
   )
@@ -307,7 +358,7 @@ async function sign(tx: any) {
   try {
     const conf = await conn.confirmTransaction(signature, "confirmed")
     if (conf.value.err) {
-      setStatus(
+      setStatusWithLinks(
         "err",
         `Transaction failed on-chain: ${JSON.stringify(conf.value.err)}\nhttps://solscan.io/tx/${signature}`,
       )
