@@ -10,7 +10,15 @@ import {
 } from "@modelcontextprotocol/sdk/types.js"
 import { z } from "zod"
 import { requireAuth, reply500 } from "./auth.js"
+import {
+  buildSignMessage,
+  consumeNonce,
+  issueNonce,
+  mintApiKey,
+} from "./auth-store.js"
 import { audit } from "./audit.js"
+import nacl from "tweetnacl"
+import bs58 from "bs58"
 import { dispatch as toolDispatch, getToolList } from "./tools.js"
 import { getBalances } from "../sol/balances.js"
 import {
@@ -94,6 +102,63 @@ app.get("/healthz", async (_req, res) => {
       rpcLatencyMs: Date.now() - start,
     })
   }
+})
+
+// --- Phantom-based "Sign In with Solana" -> API key ---------------------
+// 1) Frontend POSTs /auth/challenge -> { nonce, message, expiresAt }.
+// 2) User signs `message` in Phantom (`signMessage`).
+// 3) Frontend POSTs /auth/verify { pubkey, nonce, signatureBase64 } and
+//    receives { apiKey, pubkey } once. The api key is shown to the user
+//    once and used as Bearer in subsequent /mcp + build_*_tx calls.
+app.post("/auth/challenge", buildLimiter, (_req, res) => {
+  const c = issueNonce()
+  res.json(c)
+})
+
+app.post("/auth/verify", buildLimiter, (req, res) => {
+  const { pubkey, nonce, signatureBase64, label } = req.body ?? {}
+  if (
+    typeof pubkey !== "string" ||
+    typeof nonce !== "string" ||
+    typeof signatureBase64 !== "string"
+  ) {
+    res.status(400).json({ error: "pubkey, nonce, signatureBase64 required" })
+    return
+  }
+  // Validate pubkey is a 32-byte ed25519 public key (base58, 32-44 chars).
+  let pubkeyBytes: Uint8Array
+  try {
+    pubkeyBytes = bs58.decode(pubkey)
+  } catch {
+    res.status(400).json({ error: "pubkey must be base58" })
+    return
+  }
+  if (pubkeyBytes.length !== 32) {
+    res.status(400).json({ error: "pubkey must decode to 32 bytes" })
+    return
+  }
+  if (!consumeNonce(nonce)) {
+    res.status(400).json({ error: "nonce invalid or expired" })
+    return
+  }
+  const message = buildSignMessage(nonce)
+  const sigBytes = Buffer.from(signatureBase64, "base64")
+  if (sigBytes.length !== 64) {
+    res.status(400).json({ error: "signature must decode to 64 bytes" })
+    return
+  }
+  const ok = nacl.sign.detached.verify(
+    new TextEncoder().encode(message),
+    sigBytes,
+    pubkeyBytes,
+  )
+  if (!ok) {
+    res.status(401).json({ error: "signature does not verify" })
+    return
+  }
+  const apiKey = mintApiKey(pubkey, typeof label === "string" ? label : undefined)
+  audit({ kind: "api_key_minted", wallet: pubkey, ip: req.ip })
+  res.json({ apiKey, pubkey })
 })
 
 // Solana agent identity — frontend asks "who's the agent I should add?"

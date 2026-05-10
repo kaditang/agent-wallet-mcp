@@ -17,6 +17,7 @@ export default defineConfig({
       input: {
         sign: resolve(__dirname, "sign.html"),
         solana: resolve(__dirname, "solana.html"),
+        account: resolve(__dirname, "account.html"),
       },
     },
   },

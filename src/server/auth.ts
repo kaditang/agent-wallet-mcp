@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from "express"
+import { lookupApiKey } from "./auth-store.js"
 
 /**
  * Sanitize an error message before returning to the client. Strips file
@@ -26,9 +27,17 @@ export function reply500(res: Response, e: unknown) {
   res.status(500).json({ error: msg })
 }
 
-// Demo-grade. For production swap to OAuth/JWT (Auth0, Clerk, WorkOS, Supabase).
-// The mapping is token -> userId. Multiple tokens may map to the same user.
-const TABLE = new Map<string, string>(
+// Two auth paths (checked in order):
+//
+// 1. **API key** (production path): user signs in with Phantom at
+//    autoyield.org/account, we mint an `ak_<64hex>` key. Hashed in
+//    data/api-keys.json. userId = the wallet pubkey.
+//
+// 2. **DEMO_TOKENS env** (legacy / bootstrap fallback): same shape as before,
+//    "tok1:userA,tok2:userB". Useful for local dev and emergency access if
+//    api-keys.json gets wiped. Deprecated for end-users — set to "" in prod
+//    once everyone is on api keys.
+const DEMO_TABLE = new Map<string, string>(
   (process.env.DEMO_TOKENS ?? "")
     .split(",")
     .map((s) => s.trim())
@@ -48,11 +57,25 @@ declare module "express-serve-static-core" {
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
   const auth = req.header("authorization") ?? ""
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : ""
-  const userId = TABLE.get(token)
-  if (!userId) {
+  if (!token) {
     res.status(401).json({ error: "unauthorized" })
     return
   }
-  req.userId = userId
-  next()
+  // Path 1: api key (Phantom-issued)
+  if (token.startsWith("ak_")) {
+    const pubkey = lookupApiKey(token)
+    if (pubkey) {
+      req.userId = pubkey
+      next()
+      return
+    }
+  }
+  // Path 2: DEMO_TOKENS fallback
+  const demoUser = DEMO_TABLE.get(token)
+  if (demoUser) {
+    req.userId = demoUser
+    next()
+    return
+  }
+  res.status(401).json({ error: "unauthorized" })
 }
