@@ -100,6 +100,72 @@ app.get("/healthz", async (_req, res) => {
   }
 })
 
+// --- OAuth 2.1 metadata stubs for MCP HTTP clients (mcp-remote etc.) ----
+// The MCP HTTP transport spec (post 2025-06-18) requires servers to expose
+// RFC 9728 / 8414 / 7591 OAuth discovery so clients can negotiate auth.
+// Our actual auth model is "user signs in with Phantom at /account.html and
+// pastes the resulting `ak_<hex>` key into the MCP client config as a Bearer
+// header" — i.e. a pre-issued static token, no dynamic OAuth dance. But
+// mcp-remote refuses to start if these well-known endpoints 404.
+//
+// Strategy: respond with valid metadata that points the client at
+// autoyield.org/account.html as the "authorization_endpoint" (where users go
+// to sign in with Phantom and copy the key). Dynamic client registration
+// returns a no-op success so the client proceeds to use the static Bearer.
+const ORIGIN = process.env.PUBLIC_ORIGIN ?? "https://autoyield-api.fly.dev"
+const ACCOUNT_PAGE = process.env.WEB_BASE_URL
+  ? `${process.env.WEB_BASE_URL.replace(/\/$/, "")}/account.html`
+  : "https://autoyield.org/account.html"
+
+app.get("/.well-known/oauth-protected-resource", (_req, res) => {
+  res.json({
+    resource: ORIGIN,
+    authorization_servers: [ORIGIN],
+    bearer_methods_supported: ["header"],
+    scopes_supported: ["mcp"],
+  })
+})
+
+app.get("/.well-known/oauth-authorization-server", (_req, res) => {
+  res.json({
+    issuer: ORIGIN,
+    authorization_endpoint: ACCOUNT_PAGE,
+    token_endpoint: `${ORIGIN}/auth/token-stub`,
+    registration_endpoint: `${ORIGIN}/register`,
+    response_types_supported: ["code"],
+    grant_types_supported: ["authorization_code"],
+    code_challenge_methods_supported: ["S256"],
+    scopes_supported: ["mcp"],
+    token_endpoint_auth_methods_supported: ["none"],
+  })
+})
+
+// Dynamic client registration stub. Returns a fake client_id; mcp-remote
+// proceeds to use the static Bearer header from --header anyway.
+app.post("/register", (_req, res) => {
+  res.json({
+    client_id: `mcp-client-${Date.now()}`,
+    client_id_issued_at: Math.floor(Date.now() / 1000),
+    token_endpoint_auth_method: "none",
+    grant_types: ["authorization_code"],
+    response_types: ["code"],
+    redirect_uris: [],
+  })
+})
+
+// Token endpoint stub — never reached in practice because users provide a
+// pre-issued ak_ key in the Authorization header. If a client tries this
+// path we return a clear "use the API key from /account.html" error.
+app.post("/auth/token-stub", (_req, res) => {
+  res.status(400).json({
+    error: "unsupported_grant_type",
+    error_description:
+      "autoyield uses Phantom Sign-In: get an ak_ key at " +
+      ACCOUNT_PAGE +
+      " and pass it as `Authorization: Bearer <key>` directly.",
+  })
+})
+
 // --- Phantom-based "Sign In with Solana" -> API key ---------------------
 // 1) Frontend POSTs /auth/challenge -> { nonce, message, expiresAt }.
 // 2) User signs `message` in Phantom (`signMessage`).
