@@ -9,7 +9,7 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js"
 import { z } from "zod"
-import { requireAuth } from "./auth.js"
+import { requireAuth, reply500 } from "./auth.js"
 import { dispatch as toolDispatch, getToolList } from "./tools.js"
 import { getBalances } from "../sol/balances.js"
 import {
@@ -159,7 +159,7 @@ app.post("/sol/grant-plan", readLimiter, requireAuth, async (req, res) => {
         "Have the user sign + send this transaction with Phantom. Then POST /sol/grant-confirm with multisigPda + vaultPda to register.",
     })
   } catch (e) {
-    res.status(500).json({ error: (e as Error).message })
+    reply500(res, e)
   }
 })
 
@@ -229,7 +229,7 @@ app.post("/sign/rebuild/:id", buildLimiter, async (req, res) => {
       expectedOut,
     })
   } catch (e) {
-    res.status(500).json({ error: (e as Error).message })
+    reply500(res, e)
   }
 })
 
@@ -294,11 +294,12 @@ app.post("/sign/broadcast", broadcastLimiter, async (req, res) => {
     recordSignature(id, sig)
     res.json({ signature: sig, solscanUrl: `https://solscan.io/tx/${sig}` })
   } catch (e) {
-    const msg = (e as Error).message
-    if (/already broadcast|already in flight/i.test(msg)) {
-      res.status(409).json({ error: msg })
+    const raw = (e as Error).message ?? ""
+    if (/already broadcast|already in flight/i.test(raw)) {
+      // 409 errors are user-facing logic, safe to expose verbatim
+      res.status(409).json({ error: raw })
     } else {
-      res.status(500).json({ error: msg })
+      reply500(res, e)
     }
   }
 })
@@ -337,7 +338,7 @@ app.get("/sol/balances", readLimiter, async (req, res) => {
     const r = await getBalances(addr)
     res.json(r)
   } catch (e) {
-    res.status(500).json({ error: (e as Error).message })
+    reply500(res, e)
   }
 })
 

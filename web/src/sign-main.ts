@@ -4,6 +4,34 @@ const DEFAULT_API = "http://localhost:3030"
 const RPC = "https://solana-rpc.publicnode.com"
 const conn = new Connection(RPC, "confirmed")
 
+// Hosts allowed to load this sign page. Anything else is treated as phishing.
+// Production should bake the canonical host(s) here at build time.
+const ALLOWED_HOSTS = new Set([
+  "autoyield.org",
+  "www.autoyield.org",
+  "localhost",
+  "127.0.0.1",
+])
+
+function checkOriginOrAbort(): boolean {
+  const host = location.hostname
+  if (ALLOWED_HOSTS.has(host)) return true
+  // Block: render a hard warning instead of the sign UI.
+  document.body.innerHTML = `
+    <div style="max-width:560px;margin:4rem auto;padding:2rem;font-family:system-ui;color:#fff;background:#1a0000;border:2px solid #ef4444;border-radius:12px">
+      <h1 style="color:#ef4444;margin:0 0 1rem">⚠ Suspicious origin</h1>
+      <p>This sign page is being served from <code style="background:#000;padding:.2rem .4rem">${host}</code>, which is not an authorized autoyield host.</p>
+      <p>If you didn't expect this, <b>close the tab and do not sign anything.</b></p>
+      <p>Authorized hosts: ${Array.from(ALLOWED_HOSTS).join(", ")}</p>
+    </div>`
+  return false
+}
+
+if (!checkOriginOrAbort()) {
+  // Stop the rest of the script.
+  throw new Error("blocked by origin check")
+}
+
 const params = new URLSearchParams(location.search)
 const id = params.get("id")
 const apiOverride = params.get("api")
@@ -72,7 +100,27 @@ async function load(txId: string) {
 
   card.innerHTML = renderCard(tx)
   btn.disabled = false
-  btn.onclick = () => void sign(tx)
+  // High-value confirmation: tx > $50 requires a 2-step click (button text
+  // changes to "Confirm $X" with 3-second delay before second click is
+  // accepted). Defends against accidental click-through.
+  const HIGH_VALUE_THRESHOLD_USD = 50
+  const value = tx.amountUsdc ?? 0
+  if (value > HIGH_VALUE_THRESHOLD_USD) {
+    btn.textContent = `Confirm spending $${value} (3s)…`
+    btn.disabled = true
+    let armedAt = 0
+    setTimeout(() => {
+      btn.disabled = false
+      btn.textContent = `I confirm spending $${value} — Sign in Phantom`
+      armedAt = Date.now()
+      btn.onclick = () => {
+        if (Date.now() - armedAt < 100) return // double-click guard
+        void sign(tx)
+      }
+    }, 3000)
+  } else {
+    btn.onclick = () => void sign(tx)
+  }
 }
 
 function renderCard(tx: any): string {

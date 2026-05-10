@@ -387,6 +387,44 @@ export async function dispatch({
 
 // ---------------- shared helper ----------------
 
+/**
+ * Hard slippage ceiling — even if a tool caller passes a higher number, we
+ * cap it. Default ceiling is 1% (100 bps). Caller can pass a tighter cap;
+ * we never widen it beyond MAX_SLIPPAGE_BPS_HARD_CAP.
+ */
+const DEFAULT_SLIPPAGE_BPS = 50 // 0.5%
+const MAX_SLIPPAGE_BPS_HARD_CAP = 100 // 1.0% — never accept a wider one
+
+function clampSlippage(requested: number | undefined): number {
+  const eff = requested ?? DEFAULT_SLIPPAGE_BPS
+  return Math.min(Math.max(eff, 1), MAX_SLIPPAGE_BPS_HARD_CAP)
+}
+
+/**
+ * Detect cases where the Jupiter quote is so bad it implies a thin/manipulated
+ * pool. We compute the "implied minOut price" vs the expected price; if the
+ * gap is more than the slippage cap, we refuse to construct the tx.
+ *
+ * (This is a sanity net layered on top of Jupiter's own slippageBps.)
+ */
+function checkPriceImpactSane(
+  expectedOut: number,
+  minOut: number,
+  slippageBps: number,
+): { ok: true } | { ok: false; reason: string } {
+  if (expectedOut <= 0) {
+    return { ok: false, reason: "Jupiter returned zero expected output (no liquidity)" }
+  }
+  const dropPct = ((expectedOut - minOut) / expectedOut) * 10000 // bps
+  if (dropPct > slippageBps + 5) {
+    return {
+      ok: false,
+      reason: `quote min-out drop (${dropPct.toFixed(0)} bps) exceeds slippage cap (${slippageBps} bps) — pool likely too thin`,
+    }
+  }
+  return { ok: true }
+}
+
 async function buildSwapAndStash(opts: {
   wallet: string
   inputMint: string
@@ -402,19 +440,53 @@ async function buildSwapAndStash(opts: {
   protocol?: string
   labelExtra?: Record<string, unknown>
 }) {
+  // Validate input amount.
+  const inHuman = Number(opts.amountInHuman)
+  if (!Number.isFinite(inHuman) || inHuman <= 0) {
+    return text(
+      JSON.stringify({ ok: false, reason: `invalid amount: ${opts.amountInHuman}` }),
+      true,
+    )
+  }
+
+  // Hard-cap slippage so we never silently accept a wide minOut.
+  const slippageBps = clampSlippage(opts.slippageBps)
+
   const amountAtomic = BigInt(
-    Math.round(Number(opts.amountInHuman) * 10 ** opts.inputDecimals),
+    Math.round(inHuman * 10 ** opts.inputDecimals),
   )
   const quote = await jupiterQuote({
     inputMint: opts.inputMint,
     outputMint: opts.outputMint,
     amountAtomic,
-    slippageBps: opts.slippageBps,
+    slippageBps,
   })
   const expectedOut = Number(quote.outAmount) / 10 ** opts.outputDecimals
   const minOut = Number(quote.otherAmountThreshold) / 10 ** opts.outputDecimals
-  const inHuman = Number(opts.amountInHuman)
   const impliedPrice = expectedOut > 0 ? inHuman / expectedOut : 0
+
+  // Sanity check: refuse construction if Jupiter's minOut implies the pool is
+  // too thin (drop bigger than slippage cap).
+  const sane = checkPriceImpactSane(expectedOut, minOut, slippageBps)
+  if (!sane.ok) {
+    return text(
+      JSON.stringify(
+        {
+          ok: false,
+          reason: `liquidity check failed: ${sane.reason}`,
+          quote: {
+            expectedOut,
+            minOut,
+            slippageBps,
+            priceImpactPct: quote.priceImpactPct,
+          },
+        },
+        null,
+        2,
+      ),
+      true,
+    )
+  }
 
   const tx = await jupiterSwapTx({ quote, userPublicKey: opts.wallet })
 
@@ -440,7 +512,7 @@ async function buildSwapAndStash(opts: {
       outputDecimals: opts.outputDecimals,
       outputSymbol: opts.outputSymbol,
       amountInHuman: opts.amountInHuman,
-      slippageBps: opts.slippageBps,
+      slippageBps, // already clamped
     },
   })
   const signUrl = `${getSignBaseUrl()}/sign.html?id=${signId}`
