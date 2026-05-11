@@ -125,6 +125,12 @@ Claude calls `build_buy_xstock_tx` → receives sign URL → shows it to you. Yo
 - **Tokenized equities are issued under non-US prospectuses.** Issuers (Backed, Ondo) restrict US persons. We do not onboard or KYC anyone — that's between you and the issuer.
 - **Markets move.** Slippage cap is 0.5% by default; widen it carefully on illiquid pairs.
 
+## Security
+
+This service handles a real-money path. We've documented the full security posture, threat model, audit history, and vulnerability-disclosure process in **[SECURITY.md](./SECURITY.md)** — including a verifiable account of what "non-custodial" means here (i.e., what an attacker who controls our backend cannot do).
+
+If you find a security issue, please [open a private Security Advisory](https://github.com/kaditang/agent-wallet-mcp/security/advisories/new) instead of a public issue. See SECURITY.md for the full disclosure process.
+
 ## License
 
 MIT
