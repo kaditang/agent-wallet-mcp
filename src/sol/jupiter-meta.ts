@@ -38,6 +38,7 @@ export async function getLiveTokenMeta(mint: string): Promise<LiveTokenMeta> {
   try {
     const r = await fetch(
       `${SEARCH_BASE}?query=${encodeURIComponent(mint)}&limit=3`,
+      { signal: AbortSignal.timeout(8000) },
     )
     if (!r.ok) throw new Error(`jupiter search ${r.status}`)
     const arr = (await r.json()) as Array<{

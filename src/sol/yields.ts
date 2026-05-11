@@ -48,7 +48,9 @@ export async function compareYields(opts?: {
 }> {
   const minTvl = opts?.minTvlUsd ?? 100_000
 
-  const r = await fetch(LLAMA)
+  // 8s timeout — DefiLlama is usually <1s but has occasional 30s+ stalls;
+  // we'd rather fail fast than pin an Express slot.
+  const r = await fetch(LLAMA, { signal: AbortSignal.timeout(8000) })
   if (!r.ok) throw new Error(`defillama ${r.status}`)
   const j = (await r.json()) as { data: any[] }
 

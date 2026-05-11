@@ -1,4 +1,15 @@
-import { Connection, VersionedTransaction } from "@solana/web3.js"
+// @solana/web3.js v1 is ~240KB minified — by far the biggest dependency in
+// this bundle. The user only needs it *if* they click Sign (we deserialize
+// the tx, sign, then confirm). The 90%+ of visitors who just look at the
+// card and leave shouldn't pay the parse cost. Lazy-load via dynamic
+// import; memoized so a click → sign → confirm only loads once.
+let web3Promise: Promise<typeof import("@solana/web3.js")> | null = null
+function getWeb3() {
+  if (!web3Promise) web3Promise = import("@solana/web3.js")
+  return web3Promise
+}
+// Type-only imports stay free (erased at compile time).
+import type { VersionedTransaction } from "@solana/web3.js"
 
 // Frame-busting: refuse to render inside an iframe. Safari ignores
 // CSP frame-ancestors from <meta>, so this catches that case too.
@@ -17,7 +28,6 @@ const DEFAULT_API =
     ? "http://localhost:3030"
     : "https://autoyield-api.fly.dev"
 const RPC = "https://solana-rpc.publicnode.com"
-const conn = new Connection(RPC, "confirmed")
 
 // Hosts allowed to load this sign page. Anything else is treated as phishing.
 // Production should bake the canonical host(s) here at build time.
@@ -391,6 +401,7 @@ async function sign(tx: any) {
 
   let versionedTx: VersionedTransaction
   try {
+    const { VersionedTransaction } = await getWeb3()
     const bytes = Uint8Array.from(atob(tx.unsignedTxBase64), (c) => c.charCodeAt(0))
     versionedTx = VersionedTransaction.deserialize(bytes)
   } catch (e: any) {
@@ -478,6 +489,8 @@ async function sign(tx: any) {
   // "already signed" with arbitrary bytes.)
 
   try {
+    const { Connection } = await getWeb3()
+    const conn = new Connection(RPC, "confirmed")
     const conf = await conn.confirmTransaction(signature, "confirmed")
     if (conf.value.err) {
       setStatusWithLinks(

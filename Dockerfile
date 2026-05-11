@@ -14,6 +14,12 @@ FROM node:20-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
+# Stamp the commit SHA so Sentry tags errors with the same release id we
+# upload sourcemaps for in CI. Passed via `flyctl deploy --build-arg`.
+# Defaults to "dev" so a manual `docker build` without --build-arg still works.
+ARG SENTRY_RELEASE=dev
+ENV SENTRY_RELEASE=$SENTRY_RELEASE
+
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 

@@ -174,14 +174,28 @@ export function revokeAllForPubkey(pubkey: string): number {
   return count
 }
 
+/** How fresh `lastUsedAt` is allowed to be before we bother writing it.
+ *  Was: every request touched the disk (via 50ms coalesced flushToDisk).
+ *  Under load (100 RPS) that's a sustained write storm for a field that's
+ *  only used for "when did this key last work?" — minute-level resolution
+ *  is plenty.
+ */
+const LAST_USED_WRITE_THROTTLE_MS = 60_000
+
 /** Look up the pubkey associated with an api key, or null if invalid. */
 export function lookupApiKey(apiKey: string): string | null {
   if (!apiKey) return null
   const hash = sha256Hex(apiKey)
   const rec = store.keys[hash]
   if (!rec) return null
-  rec.lastUsedAt = Date.now()
-  flushToDisk()
+  const now = Date.now()
+  // In-memory bump is free; the persistence is what's expensive.
+  if (now - (rec.lastUsedAt ?? 0) > LAST_USED_WRITE_THROTTLE_MS) {
+    rec.lastUsedAt = now
+    flushToDisk()
+  } else {
+    rec.lastUsedAt = now
+  }
   return rec.pubkey
 }
 

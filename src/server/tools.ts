@@ -11,7 +11,7 @@ import { stashSignableTx, getSignBaseUrl } from "../sol/sign-store.js"
 import { audit } from "./audit.js"
 import { getPortfolio } from "../sol/portfolio.js"
 import { YIELD_TOKENS, findYieldToken } from "../sol/yield-tokens.js"
-import { solConn } from "../sol/connection.js"
+import { withRpcFallback } from "../sol/connection.js"
 
 // JSON.stringify support for the BigInts that Solana tx fields contain.
 ;(BigInt.prototype as any).toJSON = function () {
@@ -282,9 +282,12 @@ export async function dispatch(
   if (name === "track_tx") {
     const { signature } = z.object({ signature: z.string().min(32) }).parse(args)
     try {
-      const status = await solConn.getSignatureStatus(signature, {
-        searchTransactionHistory: true,
-      })
+      // Go through the RPC pool — if Helius (primary) hits a transient,
+      // we want to fall through to the public endpoints instead of failing
+      // the tx-status lookup. Was using raw solConn (primary only).
+      const status = await withRpcFallback((c) =>
+        c.getSignatureStatus(signature, { searchTransactionHistory: true }),
+      )
       const v = status.value
       return text(
         JSON.stringify(

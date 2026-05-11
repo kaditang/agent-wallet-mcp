@@ -4,6 +4,12 @@
 
 const JUP_BASE = "https://lite-api.jup.ag/swap/v1"
 
+// All external HTTP calls must time out — a stuck Jupiter connection would
+// otherwise pin an Express request slot and snowball at peak load.
+// 8s leaves room for a slow Jupiter response while still being well under
+// any reasonable client timeout.
+const FETCH_TIMEOUT_MS = 8000
+
 export type JupRoutePlanStep = {
   label?: string
   ammKey?: string
@@ -36,7 +42,7 @@ export async function jupiterQuote(opts: {
   url.searchParams.set("outputMint", opts.outputMint)
   url.searchParams.set("amount", opts.amountAtomic.toString())
   url.searchParams.set("slippageBps", String(opts.slippageBps ?? 50))
-  const r = await fetch(url)
+  const r = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
   if (!r.ok) throw new Error(`jupiter quote ${r.status}: ${await r.text()}`)
   return (await r.json()) as JupQuote
 }
@@ -63,6 +69,7 @@ export async function jupiterSwapTx(opts: {
   const r = await fetch(`${JUP_BASE}/swap`, {
     method: "POST",
     headers: { "content-type": "application/json" },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     body: JSON.stringify({
       quoteResponse: opts.quote,
       userPublicKey: opts.userPublicKey,
