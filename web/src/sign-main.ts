@@ -488,22 +488,61 @@ async function sign(tx: any) {
   // unauthenticated write surface attackers could abuse to mark txs
   // "already signed" with arbitrary bytes.)
 
+  // Confirm by POLLING getSignatureStatus over HTTP — NOT
+  // conn.confirmTransaction(signature, commitment), which uses a WebSocket
+  // signatureSubscribe under the hood. Public RPC WS endpoints
+  // (solana-rpc.publicnode.com) are flaky and often never deliver the
+  // subscription message, so confirmTransaction threw "could not confirm"
+  // even for txs that had already finalized. HTTP polling has no WS
+  // dependency and is reliable on public endpoints.
   try {
     const { Connection } = await getWeb3()
     const conn = new Connection(RPC, "confirmed")
-    const conf = await conn.confirmTransaction(signature, "confirmed")
-    if (conf.value.err) {
+    const POLL_TIMEOUT_MS = 45_000
+    const POLL_INTERVAL_MS = 2_000
+    const start = Date.now()
+    let confirmed = false
+    let onchainErr: unknown = null
+    while (Date.now() - start < POLL_TIMEOUT_MS) {
+      const st = await conn.getSignatureStatus(signature, {
+        searchTransactionHistory: true,
+      })
+      const v = st?.value
+      if (v) {
+        if (v.err) {
+          onchainErr = v.err
+          break
+        }
+        if (
+          v.confirmationStatus === "confirmed" ||
+          v.confirmationStatus === "finalized"
+        ) {
+          confirmed = true
+          break
+        }
+      }
+      await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS))
+    }
+    if (onchainErr) {
       setStatusWithLinks(
         "err",
-        `Transaction failed on-chain: ${JSON.stringify(conf.value.err)}\nhttps://solscan.io/tx/${signature}`,
+        `Transaction failed on-chain: ${JSON.stringify(onchainErr)}\nhttps://solscan.io/tx/${signature}`,
       )
-    } else {
+    } else if (confirmed) {
       appendStatus(`✅ Confirmed.`)
+      btn.textContent = "Done"
+    } else {
+      // Timed out polling — almost always means it's still propagating, not
+      // that it failed. Point the user at Solscan rather than implying error.
+      appendStatus(
+        `Still confirming — txs usually land within a minute. Check Solscan:\nhttps://solscan.io/tx/${signature}`,
+      )
       btn.textContent = "Done"
     }
   } catch (e: any) {
     appendStatus(
-      `Could not confirm yet — check Solscan in a moment:\nhttps://solscan.io/tx/${signature}`,
+      `Broadcast succeeded — couldn't poll confirmation. Check Solscan:\nhttps://solscan.io/tx/${signature}`,
     )
+    btn.textContent = "Done"
   }
 }
