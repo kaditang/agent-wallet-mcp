@@ -46,6 +46,34 @@ const TOKENIZED_TREASURY_PROJECTS = new Set([
   "superstate",
 ])
 
+// Reputable non-native protocols (DefiLlama project slug -> risk label).
+// Without this every off-Solana pool defaulted to protocolRisk=undefined →
+// the scorer's 0.7 "unknown" penalty, which unfairly lumped battle-tested
+// blue-chips (Aave, Compound, Maple, Morpho, Fluid, Sky) with random forks.
+// These aren't executable in V1 (read-only ranking), but the risk score
+// should still reflect that Aave on $3B TVL is not a 0.7-unknown risk.
+// Conservative: only protocols with long track records + large TVL get "low";
+// newer-but-credible get "medium"; everything unlisted stays unknown (0.7).
+const REPUTABLE_PROTOCOLS: Record<string, "low" | "medium" | "high"> = {
+  "aave-v3": "low",
+  "aave-v2": "low",
+  aave: "low",
+  "compound-v3": "low",
+  compound: "low",
+  "morpho-blue": "low",
+  morpho: "low",
+  "sky-lending": "low",
+  makerdao: "low",
+  spark: "low",
+  "fluid-lending": "low",
+  fluid: "low",
+  "maple-finance": "medium", // institutional lending — credit risk
+  maple: "medium",
+  "fluid-lite": "medium",
+  goldfinch: "medium", // real-world credit — default risk
+  "yearn-finance": "medium", // vault-of-vaults, strategy risk
+}
+
 export async function compareYields(opts?: {
   minTvlUsd?: number
   amountUsdc?: number
@@ -103,7 +131,9 @@ export async function compareYields(opts?: {
             : undefined,
         outlier: !!p.outlier,
         ilRisk: p.ilRisk,
-        protocolRisk: native?.risk,
+        // Native Solana label first; else a reputable-protocol label; else
+        // undefined → the scorer applies its 0.7 "unknown" penalty.
+        protocolRisk: native?.risk ?? REPUTABLE_PROTOCOLS[project],
       },
       opts?.amountUsdc,
     )
