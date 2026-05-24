@@ -14,6 +14,7 @@ import { YIELD_TOKENS, findYieldToken } from "../sol/yield-tokens.js"
 import { withRpcFallback } from "../sol/connection.js"
 import { getTimingSignalForXStock } from "../sol/timing-signal.js"
 import { computeRebalance, type RebalanceTarget } from "../sol/rebalance.js"
+import { fetchTradeHistory, toCsv } from "../sol/history.js"
 
 // JSON.stringify support for the BigInts that Solana tx fields contain.
 ;(BigInt.prototype as any).toJSON = function () {
@@ -131,6 +132,22 @@ const TOOLS = [
         },
       },
       required: ["wallet", "targets"],
+    },
+  },
+  {
+    name: "export_history",
+    description:
+      "Errand tool: export a wallet's tokenized-equity + yield-token TRADE HISTORY (a record for the user's accountant — NOT tax advice / not a tax calculation). Reconstructs USDC↔xStock and USDC↔yield-token swaps from on-chain history; execution price is derived from each tx's own balance deltas (no external price feed). Returns structured trades (date, buy/sell, asset, amount, USDC, price, Solscan link) + a CSV string. Capped at the last N signatures (default 100). Read-only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        wallet: { type: "string", description: "Solana wallet pubkey (base58)" },
+        limit: {
+          type: "number",
+          description: "How many recent signatures to scan (default 100, max 200)",
+        },
+      },
+      required: ["wallet"],
     },
   },
   {
@@ -482,6 +499,30 @@ export async function dispatch(
           notes: plan.notes,
           disclaimer:
             "Suggestion only — not advice. You execute each trade via the build_*_tx tools and sign in your own wallet. SOL excluded from the allocation base (gas reserve).",
+        },
+        null,
+        2,
+      ),
+    )
+  }
+
+  if (name === "export_history") {
+    const { wallet, limit } = z
+      .object({
+        wallet: z.string().min(32).max(44),
+        limit: z.number().int().min(1).max(200).optional(),
+      })
+      .parse(args)
+    const trades = await fetchTradeHistory(wallet, limit ?? 100)
+    return text(
+      JSON.stringify(
+        {
+          wallet,
+          tradeCount: trades.length,
+          trades,
+          csv: toCsv(trades),
+          disclaimer:
+            "Transaction record, NOT tax advice or a tax calculation. Prices are the execution price derived from each on-chain swap. Only clean USDC↔asset swaps are included; transfers, airdrops, and trades routed off this registry are not. Give this to your accountant; do not treat it as a computed tax liability.",
         },
         null,
         2,

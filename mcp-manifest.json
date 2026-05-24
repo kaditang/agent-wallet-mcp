@@ -55,6 +55,10 @@
       "name": "suggest_rebalance",
       "summary": "Given a target allocation, compute the buy/sell trades to reach it (read-only; user executes)."
     },
+    {
+      "name": "export_history",
+      "summary": "Export a wallet's tokenized-equity/yield trade history (date/action/asset/price/CSV) — a record for the accountant, not tax advice."
+    },
     { "name": "track_tx", "summary": "On-chain confirmation status for a Solana signature." },
     {
       "name": "build_deposit_yield_tx",

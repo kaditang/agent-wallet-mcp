@@ -81,6 +81,7 @@ SENTRY_RELEASE=<git-sha>            # optional, for release tracking
 | `get_portfolio` | Snapshot a wallet: SOL, USDC, xStocks + yield tokens valued via Jupiter. | No |
 | `portfolio_health` | "Should I do anything?" — holdings vs best risk-adjusted yield + per-xStock timing + actionable notes. | No |
 | `suggest_rebalance` | Given a target allocation, compute the buy/sell trades to reach it. Read-only; user executes. | No |
+| `export_history` | Export tokenized-equity / yield trade history (date, action, price, CSV) — a record for your accountant, not tax advice. | No |
 | `track_tx` | Lookup confirmation status for a Solana signature. | No |
 | `build_deposit_yield_tx` | Build unsigned USDC → USDY tx + one-click sign URL. | **No** — user signs in Phantom. |
 | `build_withdraw_yield_tx` | Build unsigned USDY → USDC tx + sign URL. | **No** |
