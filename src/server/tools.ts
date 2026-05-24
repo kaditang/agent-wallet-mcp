@@ -27,7 +27,7 @@ const TOOLS = [
   {
     name: "compare_yields",
     description:
-      "Rank current USDC lending and tokenized-treasury yields across major chains (Solana, Ethereum, Base, Arbitrum) using DefiLlama. Solana protocols (Kamino, MarginFi, Drift, JLP) are tagged executable=true; other chains are read-only in V1.",
+      "Rank USDC lending + tokenized-treasury yields across major chains (Solana, Ethereum, Base, Arbitrum) via DefiLlama, RISK-ADJUSTED. Results are ranked by riskAdjustedApy (not headline APY): each pool's APY is discounted by volatility (sigma), TVL depth, protocol risk, DefiLlama's stability prediction, reward-emission dependence, and IL exposure. Each entry includes riskScore (0-100), riskFactors breakdown, and riskNotes explaining the discount — surface these so the user understands WHY a lower headline APY may be the better pick. Solana protocols (Kamino, MarginFi, Drift, JLP) are executable=true; other chains read-only in V1. topByRiskAdjusted is the one to recommend.",
     inputSchema: {
       type: "object",
       properties: {

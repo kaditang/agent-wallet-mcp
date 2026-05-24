@@ -3,6 +3,8 @@
 //
 // Free tier: https://yields.llama.fi/pools (no auth, ~10s response, public)
 
+import { scoreYield, type RiskFactors } from "./yield-score.js"
+
 export type YieldEntry = {
   protocol: string
   chain: string
@@ -16,6 +18,12 @@ export type YieldEntry = {
   executable: boolean
   note?: string
   riskLabel?: "low" | "medium" | "high"
+  /** APY discounted by the risk-factor product — the number to actually rank on. */
+  riskAdjustedApy: number
+  /** 0-100, how safe the yield stream is (APY-magnitude-free). */
+  riskScore: number
+  riskFactors: RiskFactors
+  riskNotes: string[]
 }
 
 const LLAMA = "https://yields.llama.fi/pools"
@@ -45,6 +53,9 @@ export async function compareYields(opts?: {
   asOf: string
   results: YieldEntry[]
   topExecutable?: YieldEntry
+  /** Best risk-adjusted executable pool — the one we'd actually recommend. */
+  topByRiskAdjusted?: YieldEntry
+  rankedBy: "riskAdjustedApy"
 }> {
   const minTvl = opts?.minTvlUsd ?? 100_000
 
@@ -73,14 +84,37 @@ export async function compareYields(opts?: {
     if (!isPureUsdc && !isTokenizedTreasury) continue
 
     const native = chain === "Solana" ? NATIVE_SOLANA_USDC[project] : undefined
+    const apyBase = Number(p.apyBase ?? 0) || undefined
+    const apyReward = Number(p.apyReward ?? 0) || undefined
+
+    // Risk-adjust using the signals DefiLlama already returns + our own
+    // protocol-risk label. This is the differentiator vs a plain APY sort.
+    const scored = scoreYield(
+      {
+        apy,
+        apyBase,
+        apyReward,
+        tvlUsd: tvl,
+        sigma: Number(p.sigma ?? NaN),
+        predictedClass: p.predictions?.predictedClass,
+        predictedProbability:
+          p.predictions?.predictedProbability != null
+            ? Number(p.predictions.predictedProbability) / 100
+            : undefined,
+        outlier: !!p.outlier,
+        ilRisk: p.ilRisk,
+        protocolRisk: native?.risk,
+      },
+      opts?.amountUsdc,
+    )
 
     results.push({
       protocol: native?.slug ?? `${project}-${symbol.toLowerCase()}`,
       chain: String(chain).toLowerCase(),
       asset: symbol,
       apy,
-      apyBase: Number(p.apyBase ?? 0) || undefined,
-      apyReward: Number(p.apyReward ?? 0) || undefined,
+      apyBase,
+      apyReward,
       tvlUsd: tvl,
       poolId: p.pool,
       executable: !!native,
@@ -88,15 +122,25 @@ export async function compareYields(opts?: {
       note: !native
         ? `Read-only in V1 — execution arrives in V1.5 for ${chain}.`
         : undefined,
+      riskAdjustedApy: scored.riskAdjustedApy,
+      riskScore: scored.riskScore,
+      riskFactors: scored.riskFactors,
+      riskNotes: scored.riskNotes,
     })
   }
 
-  results.sort((a, b) => b.apy - a.apy)
+  // Rank by risk-adjusted APY, not headline APY. This is the whole point:
+  // a 12% reward-farm on a thin unaudited pool sorts BELOW a 6% pure-lending
+  // base rate on deep, battle-tested Kamino.
+  results.sort((a, b) => b.riskAdjustedApy - a.riskAdjustedApy)
   const topExecutable = results.find((r) => r.executable)
+  const topByRiskAdjusted = topExecutable // results already sorted by risk-adj
 
   return {
     asOf: new Date().toISOString(),
     results: results.slice(0, 20),
     topExecutable,
+    topByRiskAdjusted,
+    rankedBy: "riskAdjustedApy",
   }
 }
