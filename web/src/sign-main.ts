@@ -317,7 +317,12 @@ function setLang(next: Lang) {
 
 document.getElementById("lang-en")?.addEventListener("click", () => setLang("en"))
 document.getElementById("lang-zh")?.addEventListener("click", () => setLang("zh"))
-setLang(lang)
+// NOTE: the initial setLang(lang) call is deliberately NOT here. setLang →
+// reapplyStatus reads `lastStatus`, a `let` declared further down; calling it
+// at this point hit that variable's temporal dead zone (ReferenceError:
+// Cannot access 'lastStatus' before initialization), which halted the whole
+// module before load() ran — the page froze on the static "Loading…" HTML.
+// The initial paint is invoked below, after all the let/const it depends on.
 
 type StatusKind = "info" | "ok" | "err" | "warn"
 
@@ -434,6 +439,10 @@ function setCardError(msg: string) {
   span.textContent = msg
   card.appendChild(span)
 }
+
+// Initial i18n paint — safe here: every let/const setLang touches
+// (lastStatus, card, btn, statusEl, currentTx, btnKey) is now initialized.
+setLang(lang)
 
 if (!id) {
   setCardError(t("cardMissingId"))
