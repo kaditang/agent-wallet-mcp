@@ -23,6 +23,35 @@ export type BalancesReport = {
   otherToken2022: { mint: string; amount: number }[]
 }
 
+/**
+ * Exact raw (atomic) balance of one mint for an owner, summed across their
+ * token accounts. Used by "sell max" — selling the displayed UI amount can
+ * overshoot the true balance by ~1 atomic unit (float `human * 10**dec`
+ * rounding), tripping Jupiter InsufficientFunds (0x1788). The raw atomic
+ * amount is exact, so selling it never overshoots.
+ */
+export async function getRawTokenBalance(
+  addressBase58: string,
+  mint: string,
+): Promise<{ atomic: bigint; decimals: number } | null> {
+  const owner = new PublicKey(addressBase58)
+  for (const programId of [SPL_TOKEN, TOKEN_2022]) {
+    const accs = await withRpcFallback((c) =>
+      c.getParsedTokenAccountsByOwner(owner, { mint: new PublicKey(mint), programId }),
+    ).catch(() => null)
+    if (!accs || accs.value.length === 0) continue
+    let atomic = 0n
+    let decimals = 0
+    for (const a of accs.value) {
+      const ta = a.account.data.parsed.info.tokenAmount
+      atomic += BigInt(ta.amount as string)
+      decimals = ta.decimals
+    }
+    return { atomic, decimals }
+  }
+  return null
+}
+
 export async function getBalances(addressBase58: string): Promise<BalancesReport> {
   const owner = new PublicKey(addressBase58)
 

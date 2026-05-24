@@ -583,6 +583,15 @@ app.post("/sign/broadcast", broadcastLimiter, async (req, res) => {
             minOut: stashed.minOut!,
           }),
         )
+        // Shadow observability: log EVERY verdict (incl. pass) so we can
+        // confirm the delta math on real txs in flyctl logs before flipping
+        // PREFLIGHT_ENFORCE. Without this a "pass" was silent and shadow mode
+        // gave us nothing to validate against.
+        console.log(
+          `[preflight] verdict=${verdict.verdict} signId=${id} kind=${stashed.kind} ` +
+            `spent=${verdict.spent ?? "?"} received=${verdict.received ?? "?"} ` +
+            `minOut=${stashed.minOut} enforce=${PREFLIGHT_ENFORCE} reason="${verdict.reason}"`,
+        )
         if (verdict.verdict !== "pass") {
           audit({
             kind: "broadcast_failure",

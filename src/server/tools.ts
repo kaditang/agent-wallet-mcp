@@ -10,6 +10,7 @@ import { getLiveTokenMeta } from "../sol/jupiter-meta.js"
 import { stashSignableTx, getSignBaseUrl } from "../sol/sign-store.js"
 import { audit } from "./audit.js"
 import { getPortfolio } from "../sol/portfolio.js"
+import { getRawTokenBalance } from "../sol/balances.js"
 import { YIELD_TOKENS, findYieldToken } from "../sol/yield-tokens.js"
 import { withRpcFallback } from "../sol/connection.js"
 import { getTimingSignalForXStock } from "../sol/timing-signal.js"
@@ -201,7 +202,7 @@ const TOOLS = [
       properties: {
         wallet: { type: "string", description: "User's Solana wallet pubkey" },
         ticker: { type: "string", description: "Stock ticker to sell, e.g. NVDA" },
-        amountShares: { type: "string", description: "Number of xStock shares to sell, e.g. '0.02'" },
+        amountShares: { type: "string", description: "Number of xStock shares to sell, e.g. '0.02' — or 'max' to sell the entire balance (reads exact on-chain amount; avoids the rounding error that breaks selling the displayed balance)" },
         slippageBps: { type: "number", description: "Slippage in bps (default 50)" },
       },
       required: ["wallet", "ticker", "amountShares"],
@@ -216,7 +217,7 @@ const TOOLS = [
       properties: {
         wallet: { type: "string", description: "User's Solana wallet pubkey" },
         asset: { type: "string", enum: ["usdy"], description: "Yield token slug" },
-        amount: { type: "string", description: "Amount of the yield token to redeem (in token units, e.g. '8.5' USDY)" },
+        amount: { type: "string", description: "Amount of the yield token to redeem (token units, e.g. '8.5' USDY) — or 'max' to redeem the entire balance (exact on-chain amount)" },
         slippageBps: { type: "number", description: "Slippage in bps (default 50)" },
       },
       required: ["wallet", "asset", "amount"],
@@ -679,6 +680,16 @@ export async function dispatch(
     if (!stock) {
       return text(JSON.stringify({ ok: false, reason: `${ticker} not in xStocks registry` }), true)
     }
+    // "max" → sell the exact on-chain balance (avoids the float-overshoot
+    // InsufficientFunds that biting selling the displayed UI amount).
+    let amountAtomicOverride: bigint | undefined
+    if (amountShares.trim().toLowerCase() === "max") {
+      const bal = await getRawTokenBalance(wallet, stock.mint)
+      if (!bal || bal.atomic <= 0n) {
+        return text(JSON.stringify({ ok: false, reason: `no ${stock.symbol} balance to sell` }), true)
+      }
+      amountAtomicOverride = bal.atomic
+    }
     return buildSwapAndStash({
       wallet,
       userId: ctx?.userId,
@@ -689,6 +700,7 @@ export async function dispatch(
       outputDecimals: 6,
       outputSymbol: "USDC",
       amountInHuman: amountShares,
+      amountAtomicOverride,
       slippageBps,
       kind: "sell_xstock",
       ticker,
@@ -710,6 +722,14 @@ export async function dispatch(
     if (!token) {
       return text(JSON.stringify({ ok: false, reason: `unknown yield asset '${asset}'` }), true)
     }
+    let amountAtomicOverride: bigint | undefined
+    if (amount.trim().toLowerCase() === "max") {
+      const bal = await getRawTokenBalance(wallet, token.mint)
+      if (!bal || bal.atomic <= 0n) {
+        return text(JSON.stringify({ ok: false, reason: `no ${token.symbol} balance to withdraw` }), true)
+      }
+      amountAtomicOverride = bal.atomic
+    }
     return buildSwapAndStash({
       wallet,
       userId: ctx?.userId,
@@ -720,6 +740,7 @@ export async function dispatch(
       outputDecimals: 6,
       outputSymbol: "USDC",
       amountInHuman: amount,
+      amountAtomicOverride,
       slippageBps,
       kind: "withdraw_yield",
       protocol: token.slug,
@@ -784,6 +805,10 @@ async function buildSwapAndStash(opts: {
   outputDecimals: number
   outputSymbol: string
   amountInHuman: string
+  /** Exact atomic amount to sell (from getRawTokenBalance) — bypasses the
+   *  float human→atomic round that can overshoot the true balance by ~1 unit
+   *  and trip InsufficientFunds. Set for "sell max" / "withdraw max". */
+  amountAtomicOverride?: bigint
   slippageBps?: number
   kind: "deposit_yield" | "withdraw_yield" | "buy_xstock" | "sell_xstock"
   ticker?: string
@@ -791,8 +816,12 @@ async function buildSwapAndStash(opts: {
   protocol?: string
   labelExtra?: Record<string, unknown>
 }) {
-  // Validate input amount.
-  const inHuman = Number(opts.amountInHuman)
+  // Validate input amount. With an atomic override (max), derive the human
+  // amount from the exact atomic so display/validation match what we quote.
+  const inHuman =
+    opts.amountAtomicOverride != null
+      ? Number(opts.amountAtomicOverride) / 10 ** opts.inputDecimals
+      : Number(opts.amountInHuman)
   if (!Number.isFinite(inHuman) || inHuman <= 0) {
     return text(
       JSON.stringify({ ok: false, reason: `invalid amount: ${opts.amountInHuman}` }),
@@ -818,9 +847,9 @@ async function buildSwapAndStash(opts: {
   // Hard-cap slippage so we never silently accept a wide minOut.
   const slippageBps = clampSlippage(opts.slippageBps)
 
-  const amountAtomic = BigInt(
-    Math.round(inHuman * 10 ** opts.inputDecimals),
-  )
+  // Exact atomic when overriding (max); else float-round the human amount.
+  const amountAtomic =
+    opts.amountAtomicOverride ?? BigInt(Math.round(inHuman * 10 ** opts.inputDecimals))
   const quote = await jupiterQuote({
     inputMint: opts.inputMint,
     outputMint: opts.outputMint,
