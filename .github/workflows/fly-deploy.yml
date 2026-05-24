@@ -11,6 +11,10 @@ on:
     paths-ignore:
       - "research/**"
       - "**/*.md"
+      # docs/ is the static GitHub Pages site (landing + sign + account pages
+      # + assets). It's served by Pages, never by the Fly backend, so a
+      # docs-only change should not trigger a backend redeploy.
+      - "docs/**"
 jobs:
   test:
     name: Test
