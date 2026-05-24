@@ -5,6 +5,12 @@ on:
   push:
     branches:
       - main
+    # Don't redeploy the backend for commits that can't affect it. The
+    # microstructure snapshot Action commits to research/ every 2h —
+    # without this, each data commit would trigger a pointless rebuild.
+    paths-ignore:
+      - "research/**"
+      - "**/*.md"
 jobs:
   test:
     name: Test

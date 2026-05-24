@@ -35,6 +35,7 @@
     "start": "node dist/server/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
+    "snapshot": "tsx scripts/snapshot-microstructure.ts",
     "prepublishOnly": "npm run build"
   },
   "engines": {

@@ -1,0 +1,44 @@
+# Tokenized-stock microstructure data collection.
+# Runs the snapshot script in the cloud every 2 hours and commits the
+# appended ndjson back to the repo, so data accrues unattended (laptop can
+# be off). The weekend→Monday-open window is the interesting part — this
+# captures the full premium decay curve without anyone babysitting it.
+#
+# Manual run: Actions tab → "Microstructure snapshot" → Run workflow.
+
+name: Microstructure snapshot
+on:
+  schedule:
+    - cron: "0 */2 * * *" # every 2 hours (UTC)
+  workflow_dispatch: {} # allow manual trigger
+
+# Allow the job to push the appended data file back to the repo.
+permissions:
+  contents: write
+
+concurrency:
+  group: snapshot
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm ci
+      - run: npx tsx scripts/snapshot-microstructure.ts
+      - name: Commit snapshot
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- research/snapshots/; then
+            echo "no change to commit"
+            exit 0
+          fi
+          git add research/snapshots/
+          git commit -m "data: microstructure snapshot $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push
