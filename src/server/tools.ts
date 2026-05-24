@@ -327,24 +327,32 @@ export async function dispatch(
     }
 
     // Held xStock timing: live premium/discount vs underlying + signal.
-    const xstockTiming: any[] = []
-    for (const x of portfolio.xstocks) {
-      if (x.ticker && x.pricePerShareUsdc && x.pricePerShareUsdc > 0) {
-        const sig = await getTimingSignalForXStock(x.ticker, x.pricePerShareUsdc).catch(
-          () => null,
+    // PARALLEL — each getTimingSignalForXStock does an external underlying-
+    // price fetch (Stooq/Yahoo, 6s timeout). A wallet holding N xStocks must
+    // not serialize N fetches (worst case N×6s). Promise.all bounds the whole
+    // step at ~one fetch's latency. Audit fix.
+    const xstockTiming = (
+      await Promise.all(
+        portfolio.xstocks.map(async (x) => {
+          if (!x.ticker || !x.pricePerShareUsdc || x.pricePerShareUsdc <= 0) return null
+          const sig = await getTimingSignalForXStock(
+            x.ticker,
+            x.pricePerShareUsdc,
+          ).catch(() => null)
+          return sig ? { symbol: x.symbol, ...sig } : null // sig carries `ticker`
+        }),
+      )
+    ).filter((v): v is NonNullable<typeof v> => v !== null)
+
+    for (const sig of xstockTiming) {
+      if (sig.signal === "rich-wait") {
+        notes.push(
+          `${sig.symbol} you hold is at a +${sig.currentPremiumPct}% premium vs ${sig.ticker} (rich) — relatively expensive if you're considering selling, good if you'd be buying back later.`,
         )
-        if (sig) {
-          xstockTiming.push({ symbol: x.symbol, ...sig }) // sig already carries `ticker`
-          if (sig.signal === "rich-wait") {
-            notes.push(
-              `${x.symbol} you hold is at a +${sig.currentPremiumPct}% premium vs ${x.ticker} (rich) — relatively expensive if you're considering selling, good if you'd be buying back later.`,
-            )
-          } else if (sig.signal === "good-entry") {
-            notes.push(
-              `${x.symbol} is at ${sig.currentPremiumPct}% premium vs ${x.ticker} (cheap) — relatively good level if you're adding.`,
-            )
-          }
-        }
+      } else if (sig.signal === "good-entry") {
+        notes.push(
+          `${sig.symbol} is at ${sig.currentPremiumPct}% premium vs ${sig.ticker} (cheap) — relatively good level if you're adding.`,
+        )
       }
     }
 

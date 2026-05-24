@@ -208,8 +208,21 @@ async function yahooPrice(ticker: string): Promise<number | null> {
   }
 }
 
+// Short per-ticker cache. Stooq/Yahoo are ~15-min delayed anyway, so a 60s
+// cache loses no real freshness while deduping bursts — e.g. portfolio_health
+// across multiple wallets, or repeated quotes of the same ticker. Caps load
+// on the free finance endpoints. Audit refinement.
+const UNDERLYING_TTL_MS = 60_000
+const underlyingCache = new Map<string, { price: number | null; at: number }>()
+
 export async function fetchUnderlyingUsd(ticker: string): Promise<number | null> {
-  return (await stooqPrice(ticker)) ?? (await yahooPrice(ticker))
+  const key = ticker.toUpperCase()
+  const hit = underlyingCache.get(key)
+  if (hit && Date.now() - hit.at < UNDERLYING_TTL_MS) return hit.price
+  const price = (await stooqPrice(ticker)) ?? (await yahooPrice(ticker))
+  // Only cache successful lookups; let nulls retry on the next call.
+  if (price != null) underlyingCache.set(key, { price, at: Date.now() })
+  return price
 }
 
 /**
