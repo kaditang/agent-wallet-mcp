@@ -506,12 +506,14 @@ app.post("/sign/rebuild/:id", buildLimiter, async (req, res) => {
 //   message (compute-budget ixs), so naive byte-equality was dropped and not
 //   replaced with instruction-level equivalence. Therefore this endpoint is
 //   NOT the WYSIWYS backstop.
-//   The actual WYSIWYS guarantee is PHANTOM'S OWN SIGNING PROMPT, which
-//   simulates the tx and shows the user the real token deltas before they
-//   approve. A user who reads that prompt cannot be drained even by a
-//   compromised autoyield backend. Hardening follow-up (HIGH, backlogged):
-//   add a pre-broadcast simulateTransaction balance-delta check here so the
-//   server is also a backstop, not just Phantom. See SECURITY.md.
+//   Two WYSIWYS backstops now exist: (1) PHANTOM'S OWN SIGNING PROMPT, which
+//   simulates the tx and shows the user the real token deltas; and (2) the
+//   pre-broadcast preflight below (preflightSignedTx) — when
+//   PREFLIGHT_ENFORCE=true it simulates the signed tx server-side and BLOCKS
+//   gross divergence (output redirected/wrong-mint/over-spend) before
+//   broadcasting. Validated on real mainnet txs (SPL + Token-2022). See
+//   SECURITY.md. (Still not byte-exact instruction equivalence — the
+//   simulated-delta-bounds check is the pragmatic equivalent.)
 app.post("/sign/broadcast", broadcastLimiter, async (req, res) => {
   const { id, signedTxBase64 } = req.body ?? {}
   if (typeof id !== "string" || typeof signedTxBase64 !== "string") {

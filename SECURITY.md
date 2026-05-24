@@ -110,19 +110,19 @@ parties claim; we compose their guarantees.
   can read tx details (wallet, amount, expectedOut). They cannot
   broadcast — that requires the user's signature. Rebuild is capped
   but not blocked.
-- **WYSIWYS gap (What You See Is What You Sign)**: autoyield's sign-page
-  card and the `/sign/broadcast` endpoint do NOT decode the transaction and
-  prove its instructions (output mint, recipient, amounts) equal what was
-  reviewed. The card renders backend-supplied JSON claims; broadcast verifies
-  only the fee-payer + signature presence (Phantom legitimately mutates the
-  message, so naive byte-equality was dropped and not replaced with
-  instruction-level equivalence). **The real WYSIWYS backstop is Phantom's
-  own signing prompt**, which *simulates the transaction and shows the user
-  the actual token balance changes* before they approve — so a user who
-  reads the Phantom prompt sees the TRUE effect even if autoyield's card
-  lies. Hardening follow-up (HIGH, backlogged): add a pre-broadcast
-  `simulateTransaction` balance-delta check (and/or a client-side decode +
-  compare) so autoyield is also a backstop, not only Phantom.
+- **WYSIWYS (What You See Is What You Sign) — NOW DEFENDED server-side (2026-05-24)**:
+  `/sign/broadcast` simulates every signed tx before broadcasting and verifies
+  the wallet's token balance deltas match the reviewed deal — it must receive
+  the expected output mint (≥50% of the stashed minOut) and spend ≤1.5× the
+  agreed input, else it BLOCKS (PREFLIGHT_ENFORCE=true). Validated on real
+  mainnet txs in both directions (SPL↔SPL and Token-2022 xStock) with exact
+  delta math. So there are now TWO independent WYSIWYS backstops: (1) Phantom's
+  own signing prompt (simulates + shows true token deltas), and (2) autoyield's
+  server-side preflight. The check fails OPEN on derive/sim ambiguity (never
+  blocks a legit tx on infra error) and uses loose bounds so normal slippage
+  passes — it only catches gross divergence (output redirected, wrong mint,
+  massive over-spend). It still does not do byte-exact instruction equivalence;
+  the delta-bounds approach is the pragmatic equivalent.
 - **Backend operator compromise**: an attacker with control of the
   autoyield-api.fly.dev backend can return a different unsigned tx than the
   AI requested, and make the sign-page card display innocent amounts. They
