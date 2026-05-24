@@ -12,6 +12,7 @@ import { audit } from "./audit.js"
 import { getPortfolio } from "../sol/portfolio.js"
 import { YIELD_TOKENS, findYieldToken } from "../sol/yield-tokens.js"
 import { withRpcFallback } from "../sol/connection.js"
+import { getTimingSignalForXStock } from "../sol/timing-signal.js"
 
 // JSON.stringify support for the BigInts that Solana tx fields contain.
 ;(BigInt.prototype as any).toJSON = function () {
@@ -82,6 +83,16 @@ const TOOLS = [
     name: "get_portfolio",
     description:
       "Snapshot a Solana wallet: SOL, USDC, every held xStock or yield token priced via Jupiter. Returns total USD value. Read-only.",
+    inputSchema: {
+      type: "object",
+      properties: { wallet: { type: "string", description: "Solana wallet pubkey (base58)" } },
+      required: ["wallet"],
+    },
+  },
+  {
+    name: "portfolio_health",
+    description:
+      "Stateless 'should I do anything?' check for a wallet — the periodic re-engagement tool. Returns holdings (via get_portfolio), compares held yield to the best RISK-ADJUSTED executable yield available right now, and for each held xStock computes its live premium/discount vs the underlying + an entry/exit timing signal (from accumulated microstructure data). Emits actionable `notes` the AI should surface conversationally: e.g. 'your USDY is still the best risk-adjusted option', 'Kamino now offers more', 'the NVDAx you hold is at a +2% premium — rich if you're thinking of selling', 'you have idle USDC earning nothing'. Read-only, no signing. Run it when a user checks in to give them a reason to act (or reassurance to hold).",
     inputSchema: {
       type: "object",
       properties: { wallet: { type: "string", description: "Solana wallet pubkey (base58)" } },
@@ -248,6 +259,13 @@ export async function dispatch(
     const minOutShares = Number(q.otherAmountThreshold) / 10 ** stock.decimals
     const impliedPrice = outShares > 0 ? inUsdc / outShares : 0
 
+    // Entry-timing signal: compare the live xStock premium vs underlying to
+    // its own recent history. Best-effort — never block the quote on it.
+    const timing =
+      impliedPrice > 0
+        ? await getTimingSignalForXStock(ticker, impliedPrice).catch(() => null)
+        : null
+
     return text(
       JSON.stringify(
         {
@@ -266,6 +284,89 @@ export async function dispatch(
             routes: q.routePlan.map((r) => ({ amm: r.swapInfo.label, percent: r.percent })),
           },
           liquiditySnapshotUsd: stock.liquidityUsd,
+          timing: timing
+            ? {
+                underlyingUsd: timing.underlyingUsd,
+                premiumPct: timing.currentPremiumPct,
+                signal: timing.signal,
+                zScore: timing.zScore,
+                note: timing.note,
+              }
+            : undefined,
+        },
+        null,
+        2,
+      ),
+    )
+  }
+
+  if (name === "portfolio_health") {
+    const { wallet } = z.object({ wallet: z.string().min(32).max(44) }).parse(args)
+    const portfolio = await getPortfolio(wallet)
+
+    // Best risk-adjusted executable yield right now (best-effort).
+    const yields = await compareYields().catch(() => null)
+    const best = yields?.topByRiskAdjusted
+
+    const notes: string[] = []
+
+    // Held yield-token health: compare to the best executable alternative.
+    for (const yt of portfolio.yieldTokens) {
+      const reg = Object.values(YIELD_TOKENS).find((t) => t.mint === yt.mint)
+      const apy = reg?.approxApy
+      if (apy != null) {
+        notes.push(
+          `You hold ${yt.amount.toFixed(4)} ${yt.symbol} (~${apy}% APY, ${reg?.issuer ?? "tokenized treasury"}).`,
+        )
+        if (best) {
+          notes.push(
+            `Best risk-adjusted executable USDC lending now: ${best.protocol} at ${best.riskAdjustedApy}% risk-adj (${best.apy}% headline, risk score ${best.riskScore}/100). Note ${yt.symbol} is a treasury-backed security — a different risk profile than DeFi lending, so this isn't apples-to-apples.`,
+          )
+        }
+      }
+    }
+
+    // Held xStock timing: live premium/discount vs underlying + signal.
+    const xstockTiming: any[] = []
+    for (const x of portfolio.xstocks) {
+      if (x.ticker && x.pricePerShareUsdc && x.pricePerShareUsdc > 0) {
+        const sig = await getTimingSignalForXStock(x.ticker, x.pricePerShareUsdc).catch(
+          () => null,
+        )
+        if (sig) {
+          xstockTiming.push({ symbol: x.symbol, ...sig }) // sig already carries `ticker`
+          if (sig.signal === "rich-wait") {
+            notes.push(
+              `${x.symbol} you hold is at a +${sig.currentPremiumPct}% premium vs ${x.ticker} (rich) — relatively expensive if you're considering selling, good if you'd be buying back later.`,
+            )
+          } else if (sig.signal === "good-entry") {
+            notes.push(
+              `${x.symbol} is at ${sig.currentPremiumPct}% premium vs ${x.ticker} (cheap) — relatively good level if you're adding.`,
+            )
+          }
+        }
+      }
+    }
+
+    // Idle USDC nudge.
+    if (portfolio.usdc > 1 && best) {
+      notes.push(
+        `${portfolio.usdc.toFixed(2)} idle USDC earning nothing. Best risk-adjusted executable yield: ${best.protocol} ${best.riskAdjustedApy}% risk-adj.`,
+      )
+    }
+
+    if (notes.length === 0) {
+      notes.push("No holdings to report on. Fund the wallet with USDC to get started.")
+    }
+
+    return text(
+      JSON.stringify(
+        {
+          asOf: new Date().toISOString(),
+          portfolio,
+          bestExecutableYield: best,
+          xstockTiming,
+          notes,
         },
         null,
         2,
