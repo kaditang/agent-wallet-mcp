@@ -26,6 +26,8 @@ import { audit } from "./audit.js"
 import nacl from "tweetnacl"
 import bs58 from "bs58"
 import { clampSlippage, dispatch as toolDispatch, getToolList } from "./tools.js"
+import { preflightSignedTx, PREFLIGHT_ENFORCE } from "../sol/preflight.js"
+import { captureMessage } from "./sentry.js"
 import { getBalances } from "../sol/balances.js"
 import {
   BroadcastLockError,
@@ -561,6 +563,53 @@ app.post("/sign/broadcast", broadcastLimiter, async (req, res) => {
       amount: stashed.amountUsdc,
       symbol: stashed.symbol,
     })
+
+    // WYSIWYS backstop — simulate the signed tx and verify the wallet's token
+    // deltas match the stashed deal. SHADOW MODE: we log the verdict but only
+    // block when PREFLIGHT_ENFORCE=true, so we can confirm the delta math is
+    // right on real txs before it can false-reject a legit trade. Fails OPEN
+    // on any sim/derive ambiguity. Needs the rebuildRecipe (mints/decimals).
+    if (stashed.rebuildRecipe && stashed.minOut != null) {
+      try {
+        const r = stashed.rebuildRecipe
+        const verdict = await withRpcFallback((c) =>
+          preflightSignedTx(c, signedTxBase64, {
+            wallet: stashed.wallet,
+            inputMint: r.inputMint,
+            outputMint: r.outputMint,
+            inputDecimals: r.inputDecimals,
+            outputDecimals: r.outputDecimals,
+            inputAmount: Number(r.amountInHuman),
+            minOut: stashed.minOut!,
+          }),
+        )
+        if (verdict.verdict !== "pass") {
+          audit({
+            kind: "broadcast_failure",
+            ip: req.ip,
+            signId: id,
+            error: `preflight ${verdict.verdict}: ${verdict.reason}`,
+            extra: { spent: verdict.spent, received: verdict.received, enforce: PREFLIGHT_ENFORCE },
+          })
+        }
+        if (verdict.verdict === "violation") {
+          captureMessage(`preflight violation: ${verdict.reason}`, "error", {
+            tags: { signId: id, enforce: String(PREFLIGHT_ENFORCE) },
+          })
+          if (PREFLIGHT_ENFORCE) {
+            res.status(400).json({
+              error: "transaction failed safety preflight",
+              detail: verdict.reason,
+            })
+            return
+          }
+        }
+      } catch (e) {
+        // Preflight must never block a legit tx on its own failure.
+        console.warn(`[preflight] errored (proceeding): ${(e as Error).message?.slice(0, 120)}`)
+      }
+    }
+
     // Lock per id — second submission for the same id immediately rejects.
     // Signature is recorded INSIDE the lock; no separate recordSignature call.
     const sig = await withBroadcastLock(id, async () =>
