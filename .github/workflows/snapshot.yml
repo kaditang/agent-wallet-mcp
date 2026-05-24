@@ -9,7 +9,12 @@
 name: Microstructure snapshot
 on:
   schedule:
-    - cron: "0 */2 * * *" # every 2 hours (UTC)
+    # Hourly. GitHub's free-tier scheduled runs are unreliable (delayed,
+    # often skipped under load — we saw only 1 of ~2 expected runs land in
+    # the first 4.5h). Hourly gives more shots so the timing signal reaches
+    # its 12-sample minimum in ~a day instead of a week. Dial back to */2 or
+    # */4 once a solid baseline has accumulated.
+    - cron: "0 * * * *"
   workflow_dispatch: {} # allow manual trigger
 
 # Allow the job to push the appended data file back to the repo.

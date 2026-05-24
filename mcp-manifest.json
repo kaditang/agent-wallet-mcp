@@ -44,9 +44,17 @@
     { "name": "list_xstocks", "summary": "List supported tokenized US equities." },
     {
       "name": "quote_tokenized_stock",
-      "summary": "Live Jupiter quote for USDC → xStock."
+      "summary": "Live Jupiter quote for USDC → xStock, with a best-entry-timing signal (premium vs underlying)."
     },
-    { "name": "get_portfolio", "summary": "Wallet snapshot (SOL / USDC / xStocks valued)." },
+    { "name": "get_portfolio", "summary": "Wallet snapshot (SOL / USDC / xStocks / yield tokens valued)." },
+    {
+      "name": "portfolio_health",
+      "summary": "Should-I-do-anything check: holdings vs best risk-adjusted yield + per-xStock timing signal + actionable notes."
+    },
+    {
+      "name": "suggest_rebalance",
+      "summary": "Given a target allocation, compute the buy/sell trades to reach it (read-only; user executes)."
+    },
     { "name": "track_tx", "summary": "On-chain confirmation status for a Solana signature." },
     {
       "name": "build_deposit_yield_tx",

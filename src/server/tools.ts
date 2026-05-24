@@ -13,6 +13,7 @@ import { getPortfolio } from "../sol/portfolio.js"
 import { YIELD_TOKENS, findYieldToken } from "../sol/yield-tokens.js"
 import { withRpcFallback } from "../sol/connection.js"
 import { getTimingSignalForXStock } from "../sol/timing-signal.js"
+import { computeRebalance, type RebalanceTarget } from "../sol/rebalance.js"
 
 // JSON.stringify support for the BigInts that Solana tx fields contain.
 ;(BigInt.prototype as any).toJSON = function () {
@@ -97,6 +98,39 @@ const TOOLS = [
       type: "object",
       properties: { wallet: { type: "string", description: "Solana wallet pubkey (base58)" } },
       required: ["wallet"],
+    },
+  },
+  {
+    name: "suggest_rebalance",
+    description:
+      "Discipline tool: given a TARGET allocation, compute the trades that move a wallet toward it. READ-ONLY — it suggests buy/sell USD amounts per asset; the user executes via build_buy_xstock_tx / build_sell_xstock_tx / build_deposit_yield_tx and signs in their own wallet. Allocation base = USDC + held xStocks + held yield tokens (SOL is excluded as gas reserve). Each asset gets current% / target% / drift / deltaUsd (+buy / −sell) / action. Holds assets already within the drift threshold (no churn on noise); flags held assets not in the target (sold to 0). Surface the actions conversationally so the user can approve each trade.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        wallet: { type: "string", description: "Solana wallet pubkey (base58)" },
+        targets: {
+          type: "array",
+          description:
+            "Target allocation. Each item: { asset, percent }. asset is a ticker (NVDA, SPY), a yield-token symbol (USDY), or 'USDC' for cash. Percents should sum to ~100.",
+          items: {
+            type: "object",
+            properties: {
+              asset: { type: "string" },
+              percent: { type: "number" },
+            },
+            required: ["asset", "percent"],
+          },
+        },
+        driftThresholdPct: {
+          type: "number",
+          description: "Only suggest a trade if drift exceeds this (default 3%).",
+        },
+        minTradeUsd: {
+          type: "number",
+          description: "Suppress trades smaller than this USD amount (default 1).",
+        },
+      },
+      required: ["wallet", "targets"],
     },
   },
   {
@@ -375,6 +409,79 @@ export async function dispatch(
           bestExecutableYield: best,
           xstockTiming,
           notes,
+        },
+        null,
+        2,
+      ),
+    )
+  }
+
+  if (name === "suggest_rebalance") {
+    const { wallet, targets, driftThresholdPct, minTradeUsd } = z
+      .object({
+        wallet: z.string().min(32).max(44),
+        targets: z
+          .array(
+            z.object({
+              asset: z.string().min(1).max(12),
+              percent: z.number().min(0).max(100),
+            }),
+          )
+          .min(1)
+          .max(20),
+        driftThresholdPct: z.number().min(0).max(100).optional(),
+        minTradeUsd: z.number().min(0).optional(),
+      })
+      .parse(args)
+
+    const portfolio = await getPortfolio(wallet)
+
+    // Allocation base = USDC + xStocks + yield tokens. SOL excluded (gas).
+    const positions = [
+      { asset: "USDC", valueUsd: portfolio.usdc },
+      ...portfolio.xstocks
+        .filter((x) => x.valueUsdc != null)
+        .map((x) => ({ asset: (x.ticker ?? x.symbol).toUpperCase(), valueUsd: x.valueUsdc! })),
+      ...portfolio.yieldTokens
+        .filter((y) => y.valueUsdc != null)
+        .map((y) => ({ asset: y.symbol.toUpperCase(), valueUsd: y.valueUsdc! })),
+    ]
+
+    const plan = computeRebalance(positions, targets as RebalanceTarget[], {
+      driftThresholdPct,
+      minTradeUsd,
+    })
+
+    // Annotate each action with the tool the user would call to execute it,
+    // so the AI can chain straight into building the tx.
+    const YIELD_SYMBOLS = new Set(
+      Object.values(YIELD_TOKENS).map((t) => t.symbol.toUpperCase()),
+    )
+    const actions = plan.actions.map((a) => {
+      let executeWith: string | null = null
+      if (a.action !== "hold" && a.asset !== "USDC") {
+        const isYield = YIELD_SYMBOLS.has(a.asset)
+        if (a.action === "buy") {
+          executeWith = isYield ? "build_deposit_yield_tx" : "build_buy_xstock_tx"
+        } else {
+          executeWith = isYield ? "build_withdraw_yield_tx" : "build_sell_xstock_tx"
+        }
+      }
+      return { ...a, executeWith }
+    })
+
+    return text(
+      JSON.stringify(
+        {
+          asOf: new Date().toISOString(),
+          wallet,
+          totalUsd: plan.totalUsd,
+          targetsSumPct: plan.targetsSumPct,
+          driftThresholdPct: driftThresholdPct ?? 3,
+          actions,
+          notes: plan.notes,
+          disclaimer:
+            "Suggestion only — not advice. You execute each trade via the build_*_tx tools and sign in your own wallet. SOL excluded from the allocation base (gas reserve).",
         },
         null,
         2,

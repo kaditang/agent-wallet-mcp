@@ -74,11 +74,13 @@ SENTRY_RELEASE=<git-sha>            # optional, for release tracking
 
 | Tool | Purpose | Signs anything? |
 |------|---------|-----------------|
-| `compare_yields` | Rank USDC lending APY across major chains (Solana / Ethereum / Base / Arbitrum) via DefiLlama. Solana protocols are tagged `executable: true`. | No |
+| `compare_yields` | Rank USDC lending + tokenized-treasury yields across chains, **risk-adjusted** (volatility / TVL / protocol / stability / reward-dependence), not headline APY. Solana protocols tagged `executable: true`. | No |
 | `list_yield_tokens` | List supported tokenized treasuries (USDY by Ondo). | No |
 | `list_xstocks` | List supported tokenized US equities (Backed xStocks). | No |
-| `quote_tokenized_stock` | Live Jupiter quote for USDC → xStock (price, route, slippage). | No |
-| `get_portfolio` | Snapshot a wallet: SOL, USDC, xStocks valued via Jupiter. | No |
+| `quote_tokenized_stock` | Live Jupiter quote for USDC → xStock + a **best-entry-timing** signal (premium vs the underlying stock). | No |
+| `get_portfolio` | Snapshot a wallet: SOL, USDC, xStocks + yield tokens valued via Jupiter. | No |
+| `portfolio_health` | "Should I do anything?" — holdings vs best risk-adjusted yield + per-xStock timing + actionable notes. | No |
+| `suggest_rebalance` | Given a target allocation, compute the buy/sell trades to reach it. Read-only; user executes. | No |
 | `track_tx` | Lookup confirmation status for a Solana signature. | No |
 | `build_deposit_yield_tx` | Build unsigned USDC → USDY tx + one-click sign URL. | **No** — user signs in Phantom. |
 | `build_withdraw_yield_tx` | Build unsigned USDY → USDC tx + sign URL. | **No** |
