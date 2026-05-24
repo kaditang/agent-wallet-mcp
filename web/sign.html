@@ -90,11 +90,36 @@
         font-size: 0.8rem;
       }
       .skel { color: var(--muted); }
+      .lang {
+        position: absolute;
+        top: 1rem;
+        right: 1rem;
+        display: flex;
+        gap: 0.25rem;
+        font-size: 0.8rem;
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      }
+      .lang button {
+        width: auto;
+        padding: 0.3rem 0.55rem;
+        font-size: 0.8rem;
+        font-weight: 600;
+        background: var(--surface);
+        color: var(--muted);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+      }
+      .lang button:hover:not(:disabled) { background: var(--border); }
+      .lang button.active { color: var(--text); border-color: var(--accent); }
     </style>
   </head>
   <body>
-    <h1>Approve transaction</h1>
-    <p class="sub">
+    <div class="lang" id="lang">
+      <button id="lang-en" type="button">EN</button>
+      <button id="lang-zh" type="button">中文</button>
+    </div>
+    <h1 id="title">Approve transaction</h1>
+    <p class="sub" id="sub">
       Your AI prepared this. Review the details, then sign in Phantom. We never
       hold your keys or funds.
     </p>
@@ -105,7 +130,7 @@
 
     <div id="status" class="status">Ready.</div>
 
-    <div class="footer">
+    <div class="footer" id="footer">
       Non-custodial. The transaction is signed and sent from your wallet.
     </div>
 

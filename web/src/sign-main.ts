@@ -23,6 +23,190 @@ if (window.top !== window.self) {
   throw new Error("framed")
 }
 
+// ─── i18n ──────────────────────────────────────────────────────────────────
+// Display-string translation only. No security/control-flow logic lives here.
+// Each entry is either a plain string or a function taking interpolation
+// params. t(key, params?) resolves against the active language with an
+// English fallback.
+type Lang = "en" | "zh"
+type TParams = Record<string, string | number>
+type Entry = string | ((p: TParams) => string)
+
+const STRINGS: Record<Lang, Record<string, Entry>> = {
+  en: {
+    // page shell
+    title: "Approve transaction",
+    sub: "Your AI prepared this. Review the details, then sign in Phantom. We never hold your keys or funds.",
+    footer: "Non-custodial. The transaction is signed and sent from your wallet.",
+    // card labels
+    "label.action": "Action",
+    "label.spending": "Spending",
+    "label.receive": "You receive (≈)",
+    "label.wallet": "Wallet",
+    "label.network": "Network",
+    network: "Solana mainnet",
+    // action labels
+    "action.buy": (p) => `Buy ${p.symbol}`,
+    "action.buyXstock": "Buy xStock",
+    "action.buyYield": "Buy yield token",
+    "action.sell": (p) => `Sell ${p.symbol} for USDC`,
+    "action.sellXstock": "Sell xStock for USDC",
+    "action.sellYield": "Sell yield token for USDC",
+    "action.fallback": "Transaction",
+    // card load/errors
+    cardLoading: "Loading transaction…",
+    cardMissingId: "missing ?id= in URL",
+    cardBackendUnreachable: "backend unreachable",
+    cardNotFound: "Transaction not found or expired.",
+    cardLoadFailed: (p) => `load failed: ${p.status}`,
+    // button states
+    "btn.connectSign": "Connect Phantom & Sign",
+    "btn.signing": "Signing…",
+    "btn.confirmCountdown": (p) => `Confirm $${p.value} (3s)…`,
+    "btn.confirmSign": (p) => `I confirm $${p.value} — Sign in Phantom`,
+    "btn.alreadySigned": "Already signed",
+    "btn.done": "Done",
+    "btn.aborted": "Aborted",
+    "btn.confirmNewQuote": "Confirm new quote — Sign in Phantom",
+    // status messages
+    "st.noId": "Cannot load: no transaction id supplied.",
+    "st.backendUnreachable": (p) => `Cannot reach backend at ${p.api}\n${p.err}`,
+    "st.tryFresh": "Try asking your AI to build a fresh transaction.",
+    "st.alreadySigned": (p) =>
+      `Already signed.\nSignature: ${p.sig}\nhttps://solscan.io/tx/${p.sig}`,
+    "st.phantomMissing":
+      "Phantom not detected. Install at https://phantom.com — or open this page in a browser where Phantom is installed and unlocked.",
+    "st.connecting": "Connecting to Phantom…",
+    "st.walletMismatch": (p) =>
+      `Wallet mismatch.\nThis transaction is for ${p.txWallet} but Phantom is connected as ${p.connected}.\nSwitch accounts in Phantom and try again.`,
+    "st.connectFailed": (p) => `Connect failed: ${p.err}`,
+    "st.refreshing": "Refreshing transaction (latest blockhash)…",
+    "st.rebuildMismatch":
+      "Rebuild returned a different transaction. Aborting for safety. Ask your AI to build a fresh one.",
+    "st.drift": (p) =>
+      `Quote drifted ${p.pct}%. Review the updated numbers above and click sign again.`,
+    "st.deserializeFailed": (p) => `Could not deserialize transaction: ${p.err}`,
+    "st.walletSwitched": (p) =>
+      `Wallet switched in Phantom.\nThis transaction is for ${p.txWallet} but Phantom's active account is now ${p.active}.\nSwitch back in Phantom, then click sign again.`,
+    "st.approvePrompt": "Phantom will prompt to sign. Approve.",
+    "st.cancelled": "You cancelled the signature.",
+    "st.insufficient":
+      "Insufficient funds. Make sure your wallet has enough USDC for the trade and at least 0.005 SOL for fees.",
+    "st.expired":
+      "Transaction expired (blockhash too old). Ask your AI to build a fresh one and try again.",
+    "st.simulationFailed": (p) =>
+      `Simulation failed: ${p.msg}\nLikely cause: insufficient balance or pool out of liquidity.`,
+    "st.signFailed": (p) => `Sign failed: ${p.msg}`,
+    "st.broadcasting": "Broadcasting via backend RPC…",
+    "st.submitted": (p) =>
+      `Submitted.\nSignature: ${p.sig}\nhttps://solscan.io/tx/${p.sig}\n\nWaiting for confirmation…`,
+    "st.onchainFailed": (p) =>
+      `Transaction failed on-chain: ${p.err}\nhttps://solscan.io/tx/${p.sig}`,
+    "st.confirmed": "✅ Confirmed.",
+    "st.stillConfirming": (p) =>
+      `Still confirming — txs usually land within a minute. Check Solscan:\nhttps://solscan.io/tx/${p.sig}`,
+    "st.pollFailed": (p) =>
+      `Broadcast succeeded — couldn't poll confirmation. Check Solscan:\nhttps://solscan.io/tx/${p.sig}`,
+    geofence:
+      "Not for U.S. persons. The tokens this transaction references are issued under non-U.S. prospectuses. Do not sign.",
+  },
+  zh: {
+    // page shell
+    title: "确认交易",
+    sub: "此交易由你的 AI 准备。请核对详情后在 Phantom 中签名。我们绝不持有你的私钥或资金。",
+    footer: "非托管。交易在你自己的钱包中完成签名并发送。",
+    // card labels
+    "label.action": "操作",
+    "label.spending": "支出",
+    "label.receive": "预计收到",
+    "label.wallet": "钱包",
+    "label.network": "网络",
+    network: "Solana 主网",
+    // action labels
+    "action.buy": (p) => `买入 ${p.symbol}`,
+    "action.buyXstock": "买入 xStock",
+    "action.buyYield": "买入收益代币",
+    "action.sell": (p) => `卖出 ${p.symbol} 换 USDC`,
+    "action.sellXstock": "卖出 xStock 换 USDC",
+    "action.sellYield": "卖出收益代币换 USDC",
+    "action.fallback": "交易",
+    // card load/errors
+    cardLoading: "正在加载交易…",
+    cardMissingId: "URL 中缺少 ?id= 参数",
+    cardBackendUnreachable: "无法连接后端",
+    cardNotFound: "交易不存在或已过期。",
+    cardLoadFailed: (p) => `加载失败：${p.status}`,
+    // button states
+    "btn.connectSign": "连接 Phantom 并签名",
+    "btn.signing": "正在签名…",
+    "btn.confirmCountdown": (p) => `确认 $${p.value}（3 秒）…`,
+    "btn.confirmSign": (p) => `我确认 $${p.value} — 在 Phantom 签名`,
+    "btn.alreadySigned": "已签名",
+    "btn.done": "完成",
+    "btn.aborted": "已中止",
+    "btn.confirmNewQuote": "确认新报价 — 在 Phantom 签名",
+    // status messages
+    "st.noId": "无法加载：未提供交易 id。",
+    "st.backendUnreachable": (p) => `无法连接后端 ${p.api}\n${p.err}`,
+    "st.tryFresh": "请让你的 AI 重新生成一笔交易。",
+    "st.alreadySigned": (p) =>
+      `已签名。\n签名：${p.sig}\nhttps://solscan.io/tx/${p.sig}`,
+    "st.phantomMissing":
+      "未检测到 Phantom。请在 https://phantom.com 安装，或在已安装并解锁 Phantom 的浏览器中打开此页面。",
+    "st.connecting": "正在连接 Phantom…",
+    "st.walletMismatch": (p) =>
+      `钱包不匹配。\n此交易对应 ${p.txWallet}，但 Phantom 当前连接的是 ${p.connected}。\n请在 Phantom 中切换账户后重试。`,
+    "st.connectFailed": (p) => `连接失败：${p.err}`,
+    "st.refreshing": "正在刷新交易（获取最新区块哈希）…",
+    "st.rebuildMismatch":
+      "重建返回了不同的交易。为安全起见已中止。请让你的 AI 重新生成一笔交易。",
+    "st.drift": (p) =>
+      `报价已变动 ${p.pct}%。请核对上方更新后的数字，然后再次点击签名。`,
+    "st.deserializeFailed": (p) => `无法解析交易：${p.err}`,
+    "st.walletSwitched": (p) =>
+      `Phantom 已切换账户。\n此交易对应 ${p.txWallet}，但 Phantom 当前账户已变为 ${p.active}。\n请在 Phantom 中切回原账户，然后再次点击签名。`,
+    "st.approvePrompt": "Phantom 将弹出签名请求，请点击批准。",
+    "st.cancelled": "你已取消签名。",
+    "st.insufficient":
+      "余额不足。请确保钱包中有足够的 USDC 用于交易，并至少保留 0.005 SOL 作为手续费。",
+    "st.expired":
+      "交易已过期（区块哈希过旧）。请让你的 AI 重新生成一笔交易后重试。",
+    "st.simulationFailed": (p) =>
+      `模拟失败：${p.msg}\n可能原因：余额不足或资金池流动性不足。`,
+    "st.signFailed": (p) => `签名失败：${p.msg}`,
+    "st.broadcasting": "正在通过后端 RPC 广播…",
+    "st.submitted": (p) =>
+      `已提交。\n签名：${p.sig}\nhttps://solscan.io/tx/${p.sig}\n\n等待确认中…`,
+    "st.onchainFailed": (p) =>
+      `交易在链上失败：${p.err}\nhttps://solscan.io/tx/${p.sig}`,
+    "st.confirmed": "✅ 已确认。",
+    "st.stillConfirming": (p) =>
+      `仍在确认中 — 交易通常一分钟内上链。可在 Solscan 查看：\nhttps://solscan.io/tx/${p.sig}`,
+    "st.pollFailed": (p) =>
+      `广播成功 — 但无法轮询确认状态。可在 Solscan 查看：\nhttps://solscan.io/tx/${p.sig}`,
+    geofence:
+      "不向美国主体提供。本交易涉及的代币依据非美国招股说明书发行。请勿签名。",
+  },
+}
+
+function detectLang(): Lang {
+  try {
+    const saved = localStorage.getItem("autoyield.lang")
+    if (saved === "en" || saved === "zh") return saved
+  } catch {
+    // localStorage unavailable (private mode) — fall through to navigator.
+  }
+  return navigator.language?.toLowerCase().startsWith("zh") ? "zh" : "en"
+}
+
+let lang: Lang = detectLang()
+
+function t(key: string, params: TParams = {}): string {
+  const entry = STRINGS[lang][key] ?? STRINGS.en[key]
+  if (entry == null) return key
+  return typeof entry === "function" ? entry(params) : entry
+}
+
 const DEFAULT_API =
   window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
     ? "http://localhost:3030"
@@ -67,7 +251,8 @@ fetch("https://ipapi.co/json/", { cache: "force-cache" })
     const banner = document.createElement("div")
     banner.style.cssText =
       "max-width:480px;margin:0 auto 1rem;padding:1rem 1.25rem;background:rgba(239,68,68,.1);border:1px solid #ef4444;border-radius:10px;color:#fca5a5;font-size:0.95rem"
-    banner.innerHTML = `<strong style="color:#ef4444">Not for U.S. persons.</strong> The tokens this transaction references are issued under non-U.S. prospectuses. Do not sign.`
+    banner.textContent = t("geofence")
+    banner.dataset.i18n = "geofence"
     document.body.insertBefore(banner, document.body.firstChild)
   })
   .catch(() => {})
@@ -87,10 +272,93 @@ const card = document.getElementById("card") as HTMLDivElement
 const btn = document.getElementById("sign") as HTMLButtonElement
 const statusEl = document.getElementById("status") as HTMLDivElement
 
+// Current tx kept so a language toggle can re-render the card. The button's
+// text is re-derived from a remembered key+params (set wherever we assign
+// btn.textContent below) so it survives a toggle too.
+let currentTx: any = null
+let btnKey: string | null = null
+let btnParams: TParams = {}
+function setBtnText(key: string, params: TParams = {}) {
+  btnKey = key
+  btnParams = params
+  btn.textContent = t(key, params)
+}
+
+function applyStaticI18n() {
+  const set = (id: string, key: string) => {
+    const el = document.getElementById(id)
+    if (el) el.textContent = t(key)
+  }
+  set("title", "title")
+  set("sub", "sub")
+  set("footer", "footer")
+  document.title = t("title")
+  const banner = document.querySelector('[data-i18n="geofence"]')
+  if (banner) banner.textContent = t("geofence")
+}
+
+function setLang(next: Lang) {
+  lang = next
+  try {
+    localStorage.setItem("autoyield.lang", next)
+  } catch {
+    // ignore persistence failure
+  }
+  document.documentElement.lang = next === "zh" ? "zh-Hans" : "en"
+  const enBtn = document.getElementById("lang-en")
+  const zhBtn = document.getElementById("lang-zh")
+  enBtn?.classList.toggle("active", next === "en")
+  zhBtn?.classList.toggle("active", next === "zh")
+  applyStaticI18n()
+  if (currentTx) renderCardInto(card, currentTx)
+  if (btnKey) btn.textContent = t(btnKey, btnParams)
+  reapplyStatus()
+}
+
+document.getElementById("lang-en")?.addEventListener("click", () => setLang("en"))
+document.getElementById("lang-zh")?.addEventListener("click", () => setLang("zh"))
+setLang(lang)
+
 type StatusKind = "info" | "ok" | "err" | "warn"
+
+// Remember the last status so a language toggle can re-render it. We store the
+// translation key + params (not the resolved string) so it re-resolves into the
+// newly-active language. `mode` records which renderer drew it; `appended`
+// holds any subsequent appendStatus calls (also key+params) to replay in order.
+type StatusRec = {
+  kind: StatusKind
+  mode: "plain" | "links"
+  key: string
+  params: TParams
+  appended: { key: string; params: TParams }[]
+}
+let lastStatus: StatusRec | null = null
+
 function setStatus(kind: StatusKind, msg: string) {
   statusEl.className = `status${kind === "info" ? "" : " " + kind}`
   statusEl.textContent = msg
+}
+// Translated wrappers: resolve key→string, render, and remember for re-toggle.
+function setStatusT(kind: StatusKind, key: string, params: TParams = {}) {
+  lastStatus = { kind, mode: "plain", key, params, appended: [] }
+  setStatus(kind, t(key, params))
+}
+function setStatusWithLinksT(kind: StatusKind, key: string, params: TParams = {}) {
+  lastStatus = { kind, mode: "links", key, params, appended: [] }
+  setStatusWithLinks(kind, t(key, params))
+}
+function appendStatusT(key: string, params: TParams = {}) {
+  if (lastStatus) lastStatus.appended.push({ key, params })
+  appendStatus(t(key, params))
+}
+function reapplyStatus() {
+  if (!lastStatus) return
+  if (lastStatus.mode === "links") {
+    setStatusWithLinks(lastStatus.kind, t(lastStatus.key, lastStatus.params))
+  } else {
+    setStatus(lastStatus.kind, t(lastStatus.key, lastStatus.params))
+  }
+  for (const a of lastStatus.appended) appendStatus(t(a.key, a.params))
 }
 function appendStatus(msg: string) {
   // Preserve existing children (which may contain <a> links from
@@ -168,42 +436,43 @@ function setCardError(msg: string) {
 }
 
 if (!id) {
-  setCardError("missing ?id= in URL")
-  setStatus("err", "Cannot load: no transaction id supplied.")
+  setCardError(t("cardMissingId"))
+  setStatusT("err", "st.noId")
 } else {
   void load(id)
 }
 
 async function load(txId: string) {
-  card.textContent = "Loading transaction…"
+  card.textContent = t("cardLoading")
   let r: Response
   try {
     r = await fetch(`${apiBase}/sign/tx/${txId}`)
   } catch (e) {
-    setStatus("err", `Cannot reach backend at ${apiBase}\n${(e as Error).message}`)
-    setCardError("backend unreachable")
+    setStatusT("err", "st.backendUnreachable", {
+      api: apiBase,
+      err: (e as Error).message,
+    })
+    setCardError(t("cardBackendUnreachable"))
     return
   }
   if (r.status === 404) {
-    setCardError("Transaction not found or expired.")
-    setStatus("err", "Try asking your AI to build a fresh transaction.")
+    setCardError(t("cardNotFound"))
+    setStatusT("err", "st.tryFresh")
     return
   }
   if (!r.ok) {
-    setCardError(`load failed: ${r.status}`)
+    setCardError(t("cardLoadFailed", { status: r.status }))
     setStatus("err", await r.text())
     return
   }
   const tx = await r.json()
+  currentTx = tx
 
   if (tx.signature) {
     renderCardInto(card, tx)
-    setStatusWithLinks(
-      "ok",
-      `Already signed.\nSignature: ${tx.signature}\nhttps://solscan.io/tx/${tx.signature}`,
-    )
+    setStatusWithLinksT("ok", "st.alreadySigned", { sig: tx.signature })
     btn.disabled = true
-    btn.textContent = "Already signed"
+    setBtnText("btn.alreadySigned")
     return
   }
 
@@ -216,12 +485,12 @@ async function load(txId: string) {
   const value = tx.valueUsdEstimate ?? tx.amountUsdc ?? 0
   if (value > HIGH_VALUE_THRESHOLD_USD) {
     const valueShown = Math.round(value * 100) / 100
-    btn.textContent = `Confirm $${valueShown} (3s)…`
+    setBtnText("btn.confirmCountdown", { value: valueShown })
     btn.disabled = true
     let armedAt = 0
     setTimeout(() => {
       btn.disabled = false
-      btn.textContent = `I confirm $${valueShown} — Sign in Phantom`
+      setBtnText("btn.confirmSign", { value: valueShown })
       armedAt = Date.now()
       btn.onclick = () => {
         if (Date.now() - armedAt < 100) return // double-click guard
@@ -243,32 +512,32 @@ function renderCardInto(target: HTMLElement, tx: any): void {
   const actionLabel = (() => {
     switch (tx.kind) {
       case "buy_xstock":
-        return tx.symbol ? `Buy ${tx.symbol}` : "Buy xStock"
+        return tx.symbol ? t("action.buy", { symbol: tx.symbol }) : t("action.buyXstock")
       case "deposit_yield":
-        return tx.symbol ? `Buy ${tx.symbol}` : "Buy yield token"
+        return tx.symbol ? t("action.buy", { symbol: tx.symbol }) : t("action.buyYield")
       case "sell_xstock":
         return tx.inputSymbol
-          ? `Sell ${tx.inputSymbol} for USDC`
-          : "Sell xStock for USDC"
+          ? t("action.sell", { symbol: tx.inputSymbol })
+          : t("action.sellXstock")
       case "withdraw_yield":
         return tx.inputSymbol
-          ? `Sell ${tx.inputSymbol} for USDC`
-          : "Sell yield token for USDC"
+          ? t("action.sell", { symbol: tx.inputSymbol })
+          : t("action.sellYield")
       default:
-        return typeof tx.kind === "string" ? tx.kind : "Transaction"
+        return typeof tx.kind === "string" ? tx.kind : t("action.fallback")
     }
   })()
-  target.appendChild(rowEl("Action", actionLabel))
+  target.appendChild(rowEl(t("label.action"), actionLabel))
 
   // "Spending" row — uses inputAmount/inputSymbol (unified, works for all 4
   // kinds). Falls back to amountUsdc for older stashed txs that predate
   // the input-fields fix.
   if (tx.inputAmount != null && typeof tx.inputSymbol === "string") {
     target.appendChild(
-      rowEl("Spending", `${formatAmount(tx.inputAmount)} ${tx.inputSymbol}`, true),
+      rowEl(t("label.spending"), `${formatAmount(tx.inputAmount)} ${tx.inputSymbol}`, true),
     )
   } else if (typeof tx.amountUsdc === "number") {
-    target.appendChild(rowEl("Spending", `${formatAmount(tx.amountUsdc)} USDC`, true))
+    target.appendChild(rowEl(t("label.spending"), `${formatAmount(tx.amountUsdc)} USDC`, true))
   }
 
   // "You receive (≈)" row — for buy/deposit shows token; for sell/withdraw
@@ -279,13 +548,13 @@ function renderCardInto(target: HTMLElement, tx: any): void {
     const receiveSymbol = isReceiveUsdc ? "USDC" : tx.symbol
     if (typeof receiveSymbol === "string") {
       target.appendChild(
-        rowEl("You receive (≈)", `${formatAmount(tx.expectedOut)} ${receiveSymbol}`, true),
+        rowEl(t("label.receive"), `${formatAmount(tx.expectedOut)} ${receiveSymbol}`, true),
       )
     }
   }
 
-  target.appendChild(rowEl("Wallet", shortAddr(String(tx.wallet ?? ""), 6, 6)))
-  target.appendChild(rowEl("Network", "Solana mainnet"))
+  target.appendChild(rowEl(t("label.wallet"), shortAddr(String(tx.wallet ?? ""), 6, 6)))
+  target.appendChild(rowEl(t("label.network"), t("network")))
 }
 
 function formatAmount(n: number): string {
@@ -314,33 +583,30 @@ function rowEl(label: string, val: string, big = false): HTMLElement {
 async function sign(tx: any) {
   const provider = getPhantom()
   if (!provider) {
-    setStatus(
-      "warn",
-      "Phantom not detected. Install at https://phantom.com — or open this page in a browser where Phantom is installed and unlocked.",
-    )
+    setStatusT("warn", "st.phantomMissing")
     return
   }
 
-  setStatus("info", "Connecting to Phantom…")
+  setStatusT("info", "st.connecting")
   btn.disabled = true
-  btn.textContent = "Signing…"
+  setBtnText("btn.signing")
 
   try {
     const res = await provider.connect()
     const connectedAddr: string = res.publicKey.toString()
     if (connectedAddr !== tx.wallet) {
-      setStatus(
-        "err",
-        `Wallet mismatch.\nThis transaction is for ${shortAddr(tx.wallet)} but Phantom is connected as ${shortAddr(connectedAddr)}.\nSwitch accounts in Phantom and try again.`,
-      )
+      setStatusT("err", "st.walletMismatch", {
+        txWallet: shortAddr(tx.wallet),
+        connected: shortAddr(connectedAddr),
+      })
       btn.disabled = false
-      btn.textContent = "Connect Phantom & Sign"
+      setBtnText("btn.connectSign")
       return
     }
   } catch (e: any) {
-    setStatus("err", `Connect failed: ${e.message ?? e}`)
+    setStatusT("err", "st.connectFailed", { err: e.message ?? e })
     btn.disabled = false
-    btn.textContent = "Connect Phantom & Sign"
+    setBtnText("btn.connectSign")
     return
   }
 
@@ -351,7 +617,7 @@ async function sign(tx: any) {
   // substitute wallet-draining bytes after the user already approved
   // the rendered details. If the expected output drifted >5%, force the
   // user to re-confirm against the new numbers (re-render the card).
-  setStatus("info", "Refreshing transaction (latest blockhash)…")
+  setStatusT("info", "st.refreshing")
   try {
     const r = await fetch(`${apiBase}/sign/rebuild/${tx.id}`, { method: "POST" })
     if (r.ok) {
@@ -362,12 +628,9 @@ async function sign(tx: any) {
         (typeof fresh.wallet === "string" && fresh.wallet !== tx.wallet) ||
         (typeof fresh.kind === "string" && fresh.kind !== tx.kind)
       ) {
-        setStatus(
-          "err",
-          "Rebuild returned a different transaction. Aborting for safety. Ask your AI to build a fresh one.",
-        )
+        setStatusT("err", "st.rebuildMismatch")
         btn.disabled = true
-        btn.textContent = "Aborted"
+        setBtnText("btn.aborted")
         return
       }
       // Drift check — if the quote moved by >5%, treat it as a new offer
@@ -383,12 +646,9 @@ async function sign(tx: any) {
           tx.unsignedTxBase64 = fresh.unsignedTxBase64
           tx.expectedOut = fresh.expectedOut
           renderCardInto(card, tx)
-          setStatus(
-            "warn",
-            `Quote drifted ${(drift * 100).toFixed(1)}%. Review the updated numbers above and click sign again.`,
-          )
+          setStatusT("warn", "st.drift", { pct: (drift * 100).toFixed(1) })
           btn.disabled = false
-          btn.textContent = "Confirm new quote — Sign in Phantom"
+          setBtnText("btn.confirmNewQuote")
           return
         }
       }
@@ -405,9 +665,9 @@ async function sign(tx: any) {
     const bytes = Uint8Array.from(atob(tx.unsignedTxBase64), (c) => c.charCodeAt(0))
     versionedTx = VersionedTransaction.deserialize(bytes)
   } catch (e: any) {
-    setStatus("err", `Could not deserialize transaction: ${e.message ?? e}`)
+    setStatusT("err", "st.deserializeFailed", { err: e.message ?? e })
     btn.disabled = false
-    btn.textContent = "Connect Phantom & Sign"
+    setBtnText("btn.connectSign")
     return
   }
 
@@ -418,16 +678,16 @@ async function sign(tx: any) {
   // but only AFTER Phantom showed the user a deceptive approval prompt.
   const activePubkey = provider.publicKey?.toString?.() ?? null
   if (activePubkey && activePubkey !== tx.wallet) {
-    setStatus(
-      "err",
-      `Wallet switched in Phantom.\nThis transaction is for ${shortAddr(tx.wallet)} but Phantom's active account is now ${shortAddr(activePubkey)}.\nSwitch back in Phantom, then click sign again.`,
-    )
+    setStatusT("err", "st.walletSwitched", {
+      txWallet: shortAddr(tx.wallet),
+      active: shortAddr(activePubkey),
+    })
     btn.disabled = false
-    btn.textContent = "Connect Phantom & Sign"
+    setBtnText("btn.connectSign")
     return
   }
 
-  setStatus("info", "Phantom will prompt to sign. Approve.")
+  setStatusT("info", "st.approvePrompt")
 
   let signature: string
   try {
@@ -443,7 +703,7 @@ async function sign(tx: any) {
     }
     const signedTxBase64 = btoa(binary)
 
-    setStatus("info", "Broadcasting via backend RPC…")
+    setStatusT("info", "st.broadcasting")
     const r = await fetch(`${apiBase}/sign/broadcast`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -457,31 +717,22 @@ async function sign(tx: any) {
   } catch (e: any) {
     const msg = e?.message ?? String(e)
     if (/User reject|reject|denied/i.test(msg)) {
-      setStatus("warn", "You cancelled the signature.")
+      setStatusT("warn", "st.cancelled")
     } else if (/insufficient/i.test(msg)) {
-      setStatus(
-        "err",
-        "Insufficient funds. Make sure your wallet has enough USDC for the trade and at least 0.005 SOL for fees.",
-      )
+      setStatusT("err", "st.insufficient")
     } else if (/blockhash|expired/i.test(msg)) {
-      setStatus(
-        "err",
-        "Transaction expired (blockhash too old). Ask your AI to build a fresh one and try again.",
-      )
+      setStatusT("err", "st.expired")
     } else if (/simulation/i.test(msg)) {
-      setStatus("err", `Simulation failed: ${msg}\nLikely cause: insufficient balance or pool out of liquidity.`)
+      setStatusT("err", "st.simulationFailed", { msg })
     } else {
-      setStatus("err", `Sign failed: ${msg}`)
+      setStatusT("err", "st.signFailed", { msg })
     }
     btn.disabled = false
-    btn.textContent = "Connect Phantom & Sign"
+    setBtnText("btn.connectSign")
     return
   }
 
-  setStatusWithLinks(
-    "ok",
-    `Submitted.\nSignature: ${signature}\nhttps://solscan.io/tx/${signature}\n\nWaiting for confirmation…`,
-  )
+  setStatusWithLinksT("ok", "st.submitted", { sig: signature })
 
   // (No /sign/confirm ping — backend records the signature server-side
   // when broadcast succeeds; the extra round-trip was redundant + an
@@ -524,25 +775,21 @@ async function sign(tx: any) {
       await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS))
     }
     if (onchainErr) {
-      setStatusWithLinks(
-        "err",
-        `Transaction failed on-chain: ${JSON.stringify(onchainErr)}\nhttps://solscan.io/tx/${signature}`,
-      )
+      setStatusWithLinksT("err", "st.onchainFailed", {
+        err: JSON.stringify(onchainErr),
+        sig: signature,
+      })
     } else if (confirmed) {
-      appendStatus(`✅ Confirmed.`)
-      btn.textContent = "Done"
+      appendStatusT("st.confirmed")
+      setBtnText("btn.done")
     } else {
       // Timed out polling — almost always means it's still propagating, not
       // that it failed. Point the user at Solscan rather than implying error.
-      appendStatus(
-        `Still confirming — txs usually land within a minute. Check Solscan:\nhttps://solscan.io/tx/${signature}`,
-      )
-      btn.textContent = "Done"
+      appendStatusT("st.stillConfirming", { sig: signature })
+      setBtnText("btn.done")
     }
   } catch (e: any) {
-    appendStatus(
-      `Broadcast succeeded — couldn't poll confirmation. Check Solscan:\nhttps://solscan.io/tx/${signature}`,
-    )
-    btn.textContent = "Done"
+    appendStatusT("st.pollFailed", { sig: signature })
+    setBtnText("btn.done")
   }
 }
