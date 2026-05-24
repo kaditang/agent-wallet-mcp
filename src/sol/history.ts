@@ -155,18 +155,33 @@ export async function fetchTradeHistory(
   return entries
 }
 
+/**
+ * Escape a text field for CSV. Two defenses:
+ *   1. Formula injection — a value starting with = + - @ (or the tab/CR
+ *      variants Excel treats as formula leads) gets a leading apostrophe so a
+ *      spreadsheet renders it as text, not an executable formula.
+ *   2. Delimiter/quote safety — wrap in double quotes and double any internal
+ *      quotes, so a comma or quote in the value can't break the column layout.
+ * Numeric fields are emitted raw (they can't carry an injection payload).
+ */
+function csvText(value: string): string {
+  let v = value
+  if (/^[=+\-@\t\r]/.test(v)) v = "'" + v
+  return `"${v.replace(/"/g, '""')}"`
+}
+
 /** Render entries as a CSV string (for the user's accountant). */
 export function toCsv(entries: HistoryEntry[]): string {
   const header = "date,action,asset,amount,usdc,price_per_unit,signature"
   const rows = entries.map((e) =>
     [
-      e.isoTime ?? "",
-      e.action,
-      e.asset,
+      csvText(e.isoTime ?? ""),
+      csvText(e.action),
+      csvText(e.asset),
       e.amount,
       e.usdc,
       e.pricePerUnit.toFixed(6),
-      e.signature,
+      csvText(e.signature),
     ].join(","),
   )
   return [header, ...rows].join("\n")

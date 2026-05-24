@@ -22,7 +22,7 @@ import {
   revokeAllForPubkey,
   revokeApiKey,
 } from "./auth-store.js"
-import { audit } from "./audit.js"
+import { audit, flushAuditSync } from "./audit.js"
 import nacl from "tweetnacl"
 import bs58 from "bs58"
 import { clampSlippage, dispatch as toolDispatch, getToolList } from "./tools.js"
@@ -85,19 +85,41 @@ const broadcastLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: "rate limited (10 broadcasts/min)." },
 })
+// /healthz is unauthenticated and makes a live RPC call. A loose limiter +
+// short-lived slot cache keep it from being used to amplify load onto our
+// RPC quota. 30 hits / 10s is generous for real uptime monitors.
+const healthLimiter = rateLimit({
+  windowMs: 10_000,
+  limit: 30,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { ok: false, error: "rate limited" },
+})
 
 // Health check — used by uptime monitors. Confirms server is up and at least
-// one Solana RPC endpoint responds. Exposed without auth or rate limit.
-app.get("/healthz", async (_req, res) => {
+// one Solana RPC endpoint responds. Unauthenticated, so: loose rate limit +
+// a 5s slot cache so a flood can't amplify onto our RPC quota.
+const SLOT_CACHE_TTL_MS = 5_000
+let slotCache: { value: number; expiresAt: number } | null = null
+app.get("/healthz", healthLimiter, async (_req, res) => {
   const start = Date.now()
   const detailed = process.env.NODE_ENV !== "production"
   try {
-    const slot = await withRpcFallback((c) => c.getSlot())
+    let slot: number
+    let cached = false
+    if (slotCache && Date.now() < slotCache.expiresAt) {
+      slot = slotCache.value
+      cached = true
+    } else {
+      slot = await withRpcFallback((c) => c.getSlot())
+      slotCache = { value: slot, expiresAt: Date.now() + SLOT_CACHE_TTL_MS }
+    }
     res.json(
       detailed
         ? {
             ok: true,
             slot,
+            slotCached: cached,
             rpcLatencyMs: Date.now() - start,
             uptimeSec: Math.floor(process.uptime()),
           }
@@ -429,9 +451,13 @@ app.post("/sign/rebuild/:id", buildLimiter, async (req, res) => {
   try {
     const { jupiterQuote, jupiterSwapTx } = await import("../sol/jupiter.js")
     const r = tx.rebuildRecipe
-    const amountAtomic = BigInt(
-      Math.round(Number(r.amountInHuman) * 10 ** r.inputDecimals),
-    )
+    const humanAmount = Number(r.amountInHuman)
+    if (!isFinite(humanAmount) || humanAmount <= 0) {
+      throw new Error(
+        `invalid amountInHuman in rebuild recipe: "${r.amountInHuman}"`,
+      )
+    }
+    const amountAtomic = BigInt(Math.round(humanAmount * 10 ** r.inputDecimals))
     // Re-clamp the recipe's slippage on rebuild. Defense-in-depth: if the
     // stash was ever written with a wider slippage (data tampering, future
     // bug, or a code path that bypasses tools.ts), rebuild still respects
@@ -621,6 +647,31 @@ app.post("/sign/broadcast", broadcastLimiter, async (req, res) => {
       }
     }
 
+    // Guard: if the stashed tx has a known lastValidBlockHeight, verify the
+    // blockhash is still live BEFORE trying to broadcast. A stale blockhash
+    // makes sendRawTransaction throw "Blockhash not found" — better to surface
+    // a clear 409 here so the client knows to rebuild + re-sign rather than
+    // let an unhandled RPC error bubble up through reply500.
+    if (stashed.lastValidBlockHeight != null) {
+      const currentHeight = await withRpcFallback((c) => c.getBlockHeight())
+      if (currentHeight > stashed.lastValidBlockHeight) {
+        audit({
+          kind: "broadcast_failure",
+          ip: req.ip,
+          signId: id,
+          error: "blockhash_expired",
+          extra: { currentHeight, lastValidBlockHeight: stashed.lastValidBlockHeight },
+        })
+        res.status(409).json({
+          error: "blockhash expired",
+          detail:
+            "The transaction's blockhash has expired (Solana blockhashes are only valid for ~60 s). " +
+            "Please use the 'Rebuild' button on the sign page to get a fresh transaction and sign again.",
+        })
+        return
+      }
+    }
+
     // Lock per id — second submission for the same id immediately rejects.
     // Signature is recorded INSIDE the lock; no separate recordSignature call.
     const sig = await withBroadcastLock(id, async () =>
@@ -680,29 +731,65 @@ app.get("/sol/balances", readLimiter, async (req, res) => {
 
 // MCP transport. Stateless: V1 service tools take wallet as an arg, no per-user state.
 app.post("/mcp", buildLimiter, requireAuth, async (req, res) => {
-  const server = new Server(
-    { name: "agent-wallet", version: "0.2.0" },
-    { capabilities: { tools: {} } },
-  )
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: getToolList() as any }))
-  server.setRequestHandler(CallToolRequestSchema, async (r) =>
-    toolDispatch(r.params, { userId: req.userId }),
-  )
+  try {
+    const server = new Server(
+      { name: "agent-wallet", version: "0.2.0" },
+      { capabilities: { tools: {} } },
+    )
+    server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: getToolList() as any }))
+    server.setRequestHandler(CallToolRequestSchema, async (r) =>
+      toolDispatch(r.params, { userId: req.userId }),
+    )
 
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: undefined,
-  })
-  res.on("close", () => {
-    transport.close()
-    server.close()
-  })
-  await server.connect(transport)
-  await transport.handleRequest(req, res, req.body)
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+    })
+    res.on("close", () => {
+      transport.close()
+      server.close()
+    })
+    await server.connect(transport)
+    await transport.handleRequest(req, res, req.body)
+  } catch (e) {
+    // transport may have already flushed headers; only send if we still can.
+    if (!res.headersSent) reply500(res, e, { route: "/mcp" })
+  }
 })
 
 // (Removed: /paid-tool/echo, /paid/equity-brief, /risk/preflight — legacy EVM
 // x402 demo endpoints. Frozen for V1d service architecture; reusable patterns
 // for V2 paid-API monetization layer.)
+
+// Global error middleware — last resort for anything a route handler throws
+// or calls next(err) with. Must be 4-arg and registered after all routes.
+app.use(
+  (
+    err: unknown,
+    _req: express.Request,
+    res: express.Response,
+    next: express.NextFunction,
+  ) => {
+    if (res.headersSent) return next(err)
+    reply500(res, err, { route: "express-error-middleware" })
+  },
+)
+
+// Process-level backstops. A leaked rejection/exception should be logged and
+// reported, not silently swallowed. We do NOT exit on unhandledRejection
+// (too aggressive for a single bad request); uncaughtException is genuinely
+// unsafe to continue from, so we flush + exit and let Fly restart us.
+process.on("unhandledRejection", (reason) => {
+  console.error("[unhandledRejection]", reason)
+  captureMessage(`unhandledRejection: ${String(reason)}`, "error")
+})
+process.on("uncaughtException", (err) => {
+  console.error("[uncaughtException]", err)
+  captureMessage(`uncaughtException: ${String(err)}`, "error")
+  // Drain the audit queue synchronously before we go down — otherwise the
+  // ~200ms-coalesced events (which may include a broadcast record) are lost.
+  flushAuditSync()
+  void flushSentry(2000).finally(() => process.exit(1))
+})
 
 // Don't call listen() when imported by tests — vitest imports `app` to
 // drive supertest and doesn't need a bound port.
@@ -715,6 +802,7 @@ if (process.env.NODE_ENV !== "test") {
   // Graceful shutdown — flush Sentry + audit log before Fly kills us.
   const shutdown = async (signal: string) => {
     console.log(`[shutdown] ${signal} received, flushing...`)
+    flushAuditSync()
     await flushSentry(2000)
     server.close(() => process.exit(0))
     // Hard exit if close() hangs past 5s (existing connections, etc.)

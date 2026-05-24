@@ -299,7 +299,14 @@ export async function dispatch(
       )
     }
 
-    const amountAtomic = BigInt(Math.round(Number(amountUsdc) * 1_000_000))
+    const amountNum = Number(amountUsdc)
+    if (!Number.isFinite(amountNum) || amountNum <= 0) {
+      return text(
+        JSON.stringify({ available: false, reason: `invalid amountUsdc: ${amountUsdc}` }, null, 2),
+        true,
+      )
+    }
+    const amountAtomic = BigInt(Math.round(amountNum * 1_000_000))
     const q = await jupiterQuote({
       inputMint: SOL_USDC,
       outputMint: stock.mint,

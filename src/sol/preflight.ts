@@ -5,11 +5,10 @@
 // of the INPUT mint. This makes autoyield's server — not only Phantom — a
 // backstop against a tampered/compromised tx that diverges from the stash.
 //
-// ROLLOUT: ships in SHADOW mode (PREFLIGHT_ENFORCE=false) — it computes the
-// verdict and logs it, but does NOT block, so we can confirm the delta math
-// is correct on real txs before flipping to enforce. A wrong ATA derivation
-// or decode would otherwise false-reject legit trades on the validated money
-// path. Flip PREFLIGHT_ENFORCE=true once shadow logs look right.
+// ROLLOUT: now ENFORCING by default (validated on real SPL + Token-2022 txs).
+// Set PREFLIGHT_ENFORCE=false to drop back to SHADOW mode — computes the
+// verdict and logs it without blocking — if we ever need to debug delta math
+// against a suspected false-reject without taking the backstop offline.
 //
 // The pure verdict logic (evaluateDeltas) is unit-tested; the RPC/sim shell
 // (preflightSignedTx) fails OPEN on any ambiguity (can't derive/decode/sim) —
@@ -160,4 +159,6 @@ export async function preflightSignedTx(
 }
 
 /** Enforce flag — start in shadow (log-only). Flip via env once validated. */
-export const PREFLIGHT_ENFORCE = process.env.PREFLIGHT_ENFORCE === "true"
+// Default ON: enforce unless explicitly disabled with PREFLIGHT_ENFORCE=false.
+// Shadow mode is now opt-in (the rollout is complete and validated on mainnet).
+export const PREFLIGHT_ENFORCE = process.env.PREFLIGHT_ENFORCE !== "false"

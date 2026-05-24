@@ -62,6 +62,15 @@ function flush() {
   }
 }
 
+/**
+ * Synchronously drain the queue to disk. Call from crash/shutdown paths
+ * (uncaughtException, SIGTERM) BEFORE process.exit so the ~200ms-coalesced
+ * queue isn't lost. flush() is already synchronous, so this just forces it.
+ */
+export function flushAuditSync(): void {
+  flush()
+}
+
 // Best-effort flush on shutdown. flush() is synchronous (appendFileSync),
 // so registering it on SIGTERM/SIGINT directly is enough — handlers fire in
 // registration order, and the central shutdown sequence in server/index.ts

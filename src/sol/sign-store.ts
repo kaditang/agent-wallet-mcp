@@ -128,7 +128,12 @@ export function stashSignableTx(input: Omit<SignableTx, "id" | "createdAt">): st
 }
 
 export function getSignableTx(id: string): SignableTx | undefined {
-  return STORE.get(id)
+  const tx = STORE.get(id)
+  if (!tx) return undefined
+  // Expired entries are treated as non-existent. Cleanup on load/stash is
+  // best-effort; this guards the read path so a stale id is never signable.
+  if (Date.now() - tx.createdAt > TTL_MS) return undefined
+  return tx
 }
 
 export function recordSignature(id: string, signature: string): boolean {

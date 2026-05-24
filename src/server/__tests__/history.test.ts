@@ -107,6 +107,29 @@ describe("toCsv", () => {
     const csv = toCsv(entries)
     const lines = csv.split("\n")
     expect(lines[0]).toBe("date,action,asset,amount,usdc,price_per_unit,signature")
-    expect(lines[1]).toContain("buy,NVDAx,0.0456,10,219.300000,abc123")
+    // Text fields are quoted (delimiter/injection safety); numbers stay raw.
+    expect(lines[1]).toBe(
+      '"2026-05-24T00:00:00.000Z","buy","NVDAx",0.0456,10,219.300000,"abc123"',
+    )
+  })
+
+  it("neutralizes a formula-injection payload in a text field", () => {
+    const entries: HistoryEntry[] = [
+      {
+        action: "sell",
+        asset: "=cmd|'/c calc'!A1", // hostile symbol (defensive — not reachable today)
+        assetKind: "xstock",
+        amount: 1,
+        usdc: 2,
+        pricePerUnit: 2,
+        signature: "sig",
+        blockTime: 0,
+        isoTime: "2026-01-01T00:00:00.000Z",
+        solscanUrl: "https://solscan.io/tx/sig",
+      },
+    ]
+    const row = toCsv(entries).split("\n")[1]
+    // Leading apostrophe added, whole field quoted.
+    expect(row).toContain(`"'=cmd|'/c calc'!A1"`)
   })
 })
