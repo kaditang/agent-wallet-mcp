@@ -440,8 +440,29 @@ app.post("/sign/rebuild/:id", buildLimiter, async (req, res) => {
       amountAtomic,
       slippageBps: clampSlippage(r.slippageBps),
     })
-    const fresh = await jupiterSwapTx({ quote, userPublicKey: tx.wallet })
     const expectedOut = Number(quote.outAmount) / 10 ** r.outputDecimals
+
+    // PRICE FLOOR: refuse to hand the user a rebuilt tx that's materially
+    // worse than the worst case they accepted at first build. If the fresh
+    // quote's expected output is below the originally-stashed minOut, the
+    // market moved beyond the user's original tolerance (or the stash was
+    // tampered). Don't silently sign a worse deal — make them build fresh.
+    if (tx.minOut != null && expectedOut < tx.minOut) {
+      audit({
+        kind: "rebuild_tx",
+        ip: req.ip,
+        signId: tx.id,
+        error: "below-floor",
+        extra: { expectedOut, floor: tx.minOut },
+      })
+      res.status(409).json({
+        error: "price moved beyond your original tolerance",
+        detail: `Re-quote (${expectedOut}) is below the minimum you accepted at build (${tx.minOut}). Build a fresh transaction to trade at current prices.`,
+      })
+      return
+    }
+
+    const fresh = await jupiterSwapTx({ quote, userPublicKey: tx.wallet })
     updateRebuiltTx(tx.id, {
       unsignedTxBase64: fresh.swapTransactionBase64,
       lastValidBlockHeight: fresh.lastValidBlockHeight,
@@ -473,9 +494,22 @@ app.post("/sign/rebuild/:id", buildLimiter, async (req, res) => {
 // Phantom's `signAndSendTransaction` broadcast is unreliable; the sign page
 // instead uses `signTransaction` (sign only) and POSTs the signed bytes here.
 //
-// SECURITY: we require a sign-store id and verify the unsigned message bytes
-// in the submitted tx match the tx we stashed. This prevents arbitrary
-// 3rd-party txs from being broadcast through our RPC quota.
+// SECURITY — what this endpoint DOES and DOES NOT verify (be honest):
+//   DOES: require a known sign-store id; require the signed tx's fee-payer
+//   (staticAccountKeys[0]) to equal the wallet we stashed; require a present,
+//   non-zero signature. This stops arbitrary 3rd-party txs from being
+//   broadcast through our RPC quota and stops broadcasting an unsigned tx.
+//   DOES NOT: decode the instructions and prove the output mint / recipient /
+//   amounts equal what the user reviewed. Phantom legitimately mutates the
+//   message (compute-budget ixs), so naive byte-equality was dropped and not
+//   replaced with instruction-level equivalence. Therefore this endpoint is
+//   NOT the WYSIWYS backstop.
+//   The actual WYSIWYS guarantee is PHANTOM'S OWN SIGNING PROMPT, which
+//   simulates the tx and shows the user the real token deltas before they
+//   approve. A user who reads that prompt cannot be drained even by a
+//   compromised autoyield backend. Hardening follow-up (HIGH, backlogged):
+//   add a pre-broadcast simulateTransaction balance-delta check here so the
+//   server is also a backstop, not just Phantom. See SECURITY.md.
 app.post("/sign/broadcast", broadcastLimiter, async (req, res) => {
   const { id, signedTxBase64 } = req.body ?? {}
   if (typeof id !== "string" || typeof signedTxBase64 !== "string") {

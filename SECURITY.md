@@ -58,7 +58,7 @@ parties claim; we compose their guarantees.
 | Threat | Defense | Where |
 |---|---|---|
 | AI agent / MCP client is malicious — calls tools to drain user wallet | Every tool returns an *unsigned* tx + sign URL. No tool can spend on the user's behalf. | Whole architecture |
-| Stolen sign URL → attacker broadcasts a different signed tx | `/sign/broadcast` verifies the signed tx's fee-payer equals the stashed wallet. Sig presence + structural sanity required. | `src/server/index.ts` `/sign/broadcast` |
+| Stolen sign URL → attacker broadcasts a different signed tx | `/sign/broadcast` verifies the signed tx's fee-payer equals the stashed wallet + signature present. (Note: this is NOT a full WYSIWYS check — see "WYSIWYS gap" under known gaps; Phantom's prompt is the real backstop.) | `src/server/index.ts` `/sign/broadcast` |
 | Sign-id leaks → attacker mills `/sign/rebuild` for free Jupiter quotes | Per-id rebuild cap (`REBUILD_CAP_PER_ID = 20`). 429 after exhaustion. | `src/sol/sign-store.ts:reserveRebuild` |
 | Sign-id leaks → attacker tries double-broadcast | Per-id mutex (`withBroadcastLock`) — second submission gets `BroadcastLockError`. Signature recorded inside lock. | `src/sol/sign-store.ts:withBroadcastLock` |
 | Phishing sign-page on attacker domain | `web/src/sign-main.ts` host allowlist; refuses to render outside `autoyield.org` / `www.autoyield.org`. `?api=` override is localhost-only. | `web/src/sign-main.ts:checkOriginOrAbort` |
@@ -110,13 +110,28 @@ parties claim; we compose their guarantees.
   can read tx details (wallet, amount, expectedOut). They cannot
   broadcast — that requires the user's signature. Rebuild is capped
   but not blocked.
+- **WYSIWYS gap (What You See Is What You Sign)**: autoyield's sign-page
+  card and the `/sign/broadcast` endpoint do NOT decode the transaction and
+  prove its instructions (output mint, recipient, amounts) equal what was
+  reviewed. The card renders backend-supplied JSON claims; broadcast verifies
+  only the fee-payer + signature presence (Phantom legitimately mutates the
+  message, so naive byte-equality was dropped and not replaced with
+  instruction-level equivalence). **The real WYSIWYS backstop is Phantom's
+  own signing prompt**, which *simulates the transaction and shows the user
+  the actual token balance changes* before they approve — so a user who
+  reads the Phantom prompt sees the TRUE effect even if autoyield's card
+  lies. Hardening follow-up (HIGH, backlogged): add a pre-broadcast
+  `simulateTransaction` balance-delta check (and/or a client-side decode +
+  compare) so autoyield is also a backstop, not only Phantom.
 - **Backend operator compromise**: an attacker with control of the
-  autoyield-api.fly.dev backend can return a different unsigned tx than
-  the AI requested. The sign-page renders backend-supplied amounts; the
-  user would see those amounts in Phantom too. Detection relies on the
-  user reading the Phantom prompt carefully. Mitigations: open-source
-  build, reproducible deploys (in progress), no private signing key in
-  the backend so the attacker still can't sign anything.
+  autoyield-api.fly.dev backend can return a different unsigned tx than the
+  AI requested, and make the sign-page card display innocent amounts. They
+  still **cannot sign** (no private key in the backend) and **cannot defeat
+  Phantom's prompt** — Phantom simulates the real tx, so the user would see
+  the real (malicious) token movements in Phantom regardless of what the
+  card claims. Detection therefore relies on the user reading the Phantom
+  prompt. Mitigations: open-source build, no signing key in the backend, and
+  the planned pre-broadcast simulation check above.
 
 ---
 

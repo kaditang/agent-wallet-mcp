@@ -29,6 +29,10 @@ export type SignableTx = {
   /** USDC amount for deposit/buy (input is USDC). undefined for sell/withdraw. */
   amountUsdc?: number
   expectedOut?: number
+  /** The worst-case output the user implicitly accepted at FIRST build
+   *  (otherAmountThreshold-derived). A rebuild that re-quotes below this is
+   *  a materially worse deal than reviewed → rejected server-side. */
+  minOut?: number
   /** What's being spent: amount + symbol. Set for ALL kinds — used by sign page
    *  to show "Spending X foo" regardless of direction. */
   inputAmount?: number

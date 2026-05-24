@@ -469,22 +469,52 @@ export async function dispatch(
       minTradeUsd,
     })
 
-    // Annotate each action with the tool the user would call to execute it,
-    // so the AI can chain straight into building the tx.
-    const YIELD_SYMBOLS = new Set(
-      Object.values(YIELD_TOKENS).map((t) => t.symbol.toUpperCase()),
+    // Annotate each action with the EXACT tool + correctly-typed args to
+    // execute it. Critical: buys take amountUsdc (dollars) but sells take
+    // token UNITS (shares / token amount), not dollars. Emitting an explicit
+    // executeArgs prevents an AI from feeding deltaUsd straight into a sell
+    // tool as a share count → wrong-size trade. Audit fix.
+    const symbolToSlug = new Map(
+      Object.values(YIELD_TOKENS).map((t) => [t.symbol.toUpperCase(), t.slug]),
     )
+    // Price per unit for held positions (needed to convert sell USD → units).
+    const priceMap = new Map<string, number>()
+    for (const x of portfolio.xstocks) {
+      if (x.pricePerShareUsdc) priceMap.set((x.ticker ?? x.symbol).toUpperCase(), x.pricePerShareUsdc)
+    }
+    for (const y of portfolio.yieldTokens) {
+      if (y.pricePerShareUsdc) priceMap.set(y.symbol.toUpperCase(), y.pricePerShareUsdc)
+    }
+
     const actions = plan.actions.map((a) => {
       let executeWith: string | null = null
+      let executeArgs: Record<string, unknown> | null = null
+      let executeNote: string | undefined
       if (a.action !== "hold" && a.asset !== "USDC") {
-        const isYield = YIELD_SYMBOLS.has(a.asset)
+        const isYield = symbolToSlug.has(a.asset)
         if (a.action === "buy") {
+          // Buys are USDC-denominated — deltaUsd IS the USDC to spend.
           executeWith = isYield ? "build_deposit_yield_tx" : "build_buy_xstock_tx"
+          executeArgs = isYield
+            ? { wallet, asset: symbolToSlug.get(a.asset), amountUsdc: String(Math.round(a.deltaUsd * 100) / 100) }
+            : { wallet, ticker: a.asset, amountUsdc: String(Math.round(a.deltaUsd * 100) / 100) }
         } else {
+          // Sells are UNIT-denominated — convert |deltaUsd| → token units via
+          // the current price. If we lack a price, emit the USD amount + a
+          // loud note instead of a wrong unit count.
           executeWith = isYield ? "build_withdraw_yield_tx" : "build_sell_xstock_tx"
+          const price = priceMap.get(a.asset)
+          if (price && price > 0) {
+            const units = Math.round((Math.abs(a.deltaUsd) / price) * 1e6) / 1e6
+            executeArgs = isYield
+              ? { wallet, asset: symbolToSlug.get(a.asset), amount: String(units) }
+              : { wallet, ticker: a.asset, amountShares: String(units) }
+          } else {
+            executeNote = `No live price for ${a.asset}; sell ≈$${Math.abs(a.deltaUsd)} worth — convert to token units before calling ${executeWith} (it takes UNITS, not USD).`
+          }
         }
       }
-      return { ...a, executeWith }
+      return { ...a, executeWith, executeArgs, executeNote }
     })
 
     return text(
@@ -844,6 +874,7 @@ async function buildSwapAndStash(opts: {
     amountUsdc:
       stashKind === "deposit_yield" || stashKind === "buy_xstock" ? inHuman : undefined,
     expectedOut,
+    minOut, // worst-case the user accepts now; rebuild floor enforces it
     inputAmount: inHuman,
     inputSymbol: opts.inputSymbol,
     valueUsdEstimate,

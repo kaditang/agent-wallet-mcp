@@ -20,6 +20,19 @@ const CACHE_TTL_MS = 30 * 60 * 1000
 // At the 2h Action cadence that's ~1 day of data.
 const MIN_SAMPLES = 12
 
+// Sanity bound on premium/discount. Real xStock premiums are ~0-3%; anything
+// beyond ±50% is a bad data point (spoofed/MITM'd external price, parse error,
+// or a thin-pool blip) — reject it so a poisoned feed can't flip the signal
+// or poison the trailing baseline. Audit: external feeds are unauthenticated.
+const MAX_PREMIUM_ABS_PCT = 50
+// Cap the snapshot ndjson we'll buffer from GitHub raw (defends a hostile /
+// runaway response from exhausting memory). ~10MB ≈ years of hourly data.
+const MAX_SNAPSHOT_BYTES = 10 * 1024 * 1024
+
+function premiumInRange(p: number | null | undefined): p is number {
+  return typeof p === "number" && Number.isFinite(p) && Math.abs(p) <= MAX_PREMIUM_ABS_PCT
+}
+
 export type TimingSignalKind =
   | "good-entry"
   | "fair"
@@ -47,8 +60,10 @@ export function computeTimingSignal(
   currentPremiumPct: number | null,
   history: number[],
 ): TimingSignal {
-  const clean = history.filter((n) => Number.isFinite(n))
-  if (currentPremiumPct == null || clean.length < MIN_SAMPLES) {
+  // Drop out-of-range samples (poisoned/garbage) before any stats.
+  const clean = history.filter((n) => premiumInRange(n))
+  const currentOk = premiumInRange(currentPremiumPct) ? currentPremiumPct : null
+  if (currentOk == null || clean.length < MIN_SAMPLES) {
     return {
       ticker,
       currentPremiumPct,
@@ -58,9 +73,9 @@ export function computeTimingSignal(
       zScore: null,
       signal: "insufficient-history",
       note:
-        currentPremiumPct == null
-          ? "No live premium available."
-          : `Only ${clean.length} historical samples (need ${MIN_SAMPLES}). Signal will sharpen as data accrues.`,
+        currentOk == null
+          ? "No valid live premium available (missing or out-of-range)."
+          : `Only ${clean.length} valid historical samples (need ${MIN_SAMPLES}). Signal will sharpen as data accrues.`,
     }
   }
 
@@ -70,24 +85,24 @@ export function computeTimingSignal(
   const std = Math.sqrt(variance)
 
   // If std is ~0 (premium has been flat), any deviation is noise — call it fair.
-  const zScore = std > 1e-6 ? (currentPremiumPct - mean) / std : 0
+  const zScore = std > 1e-6 ? (currentOk - mean) / std : 0
 
   let signal: TimingSignalKind
   let note: string
   if (zScore <= -1) {
     signal = "good-entry"
-    note = `Premium (${currentPremiumPct.toFixed(2)}%) is unusually LOW vs its ${clean.length}-sample average (${mean.toFixed(2)}%, z=${zScore.toFixed(1)}). Relatively cheap entry.`
+    note = `Premium (${currentOk.toFixed(2)}%) is unusually LOW vs its ${clean.length}-sample average (${mean.toFixed(2)}%, z=${zScore.toFixed(1)}). Relatively cheap entry.`
   } else if (zScore >= 1) {
     signal = "rich-wait"
-    note = `Premium (${currentPremiumPct.toFixed(2)}%) is unusually HIGH vs its ${clean.length}-sample average (${mean.toFixed(2)}%, z=${zScore.toFixed(1)}). You'd be paying above the typical markup — consider waiting.`
+    note = `Premium (${currentOk.toFixed(2)}%) is unusually HIGH vs its ${clean.length}-sample average (${mean.toFixed(2)}%, z=${zScore.toFixed(1)}). You'd be paying above the typical markup — consider waiting.`
   } else {
     signal = "fair"
-    note = `Premium (${currentPremiumPct.toFixed(2)}%) is near its ${clean.length}-sample average (${mean.toFixed(2)}%, z=${zScore.toFixed(1)}). Typical entry.`
+    note = `Premium (${currentOk.toFixed(2)}%) is near its ${clean.length}-sample average (${mean.toFixed(2)}%, z=${zScore.toFixed(1)}). Typical entry.`
   }
 
   return {
     ticker,
-    currentPremiumPct: Number(currentPremiumPct.toFixed(4)),
+    currentPremiumPct: Number(currentOk.toFixed(4)),
     trailingMeanPct: Number(mean.toFixed(4)),
     trailingStdPct: Number(std.toFixed(4)),
     sampleCount: clean.length,
@@ -114,7 +129,11 @@ async function loadSnapshots(): Promise<SnapshotRecord[]> {
   try {
     const r = await fetch(RAW_URL, { signal: AbortSignal.timeout(8000) })
     if (!r.ok) throw new Error(`raw fetch ${r.status}`)
+    // Reject an oversized body before buffering it (DoS guard).
+    const len = Number(r.headers.get("content-length") ?? 0)
+    if (len > MAX_SNAPSHOT_BYTES) throw new Error("snapshot file too large")
     const text = await r.text()
+    if (text.length > MAX_SNAPSHOT_BYTES) throw new Error("snapshot body too large")
     const records: SnapshotRecord[] = []
     for (const line of text.split("\n")) {
       const trimmed = line.trim()
@@ -186,7 +205,9 @@ async function stooqPrice(ticker: string): Promise<number | null> {
     const lines = (await r.text()).trim().split("\n")
     if (lines.length < 2) return null
     const close = Number(lines[1].split(",")[6])
-    return Number.isFinite(close) && close > 0 ? close : null
+    // Sanity bound: a real US stock/ETF is well under $1M/share. Reject
+    // absurd values (spoofed/garbage) so they can't drive the premium calc.
+    return Number.isFinite(close) && close > 0 && close < 1_000_000 ? close : null
   } catch {
     return null
   }
@@ -202,7 +223,7 @@ async function yahooPrice(ticker: string): Promise<number | null> {
     if (!r.ok) return null
     const j: any = await r.json()
     const p = j?.chart?.result?.[0]?.meta?.regularMarketPrice
-    return typeof p === "number" && p > 0 ? p : null
+    return typeof p === "number" && p > 0 && p < 1_000_000 ? p : null
   } catch {
     return null
   }

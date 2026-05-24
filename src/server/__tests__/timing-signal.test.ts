@@ -39,6 +39,21 @@ describe("computeTimingSignal", () => {
     expect(Math.abs(s.zScore ?? 99)).toBeLessThan(1)
   })
 
+  it("rejects an out-of-range current premium (poisoned price) → insufficient", () => {
+    // A spoofed underlying price could yield an absurd premium like 999%.
+    const s = computeTimingSignal("NVDA", 999, HISTORY)
+    expect(s.signal).toBe("insufficient-history")
+    expect(s.note).toMatch(/out-of-range|No valid/i)
+  })
+
+  it("drops out-of-range history samples before computing stats", () => {
+    // 11 good samples + 3 poisoned (>50%): only 11 valid < 12 → insufficient.
+    const poisoned = [...HISTORY.slice(0, 11), 5000, -9999, 1e9]
+    const s = computeTimingSignal("NVDA", 1.0, poisoned)
+    expect(s.signal).toBe("insufficient-history")
+    expect(s.sampleCount).toBe(11) // poisoned samples filtered out
+  })
+
   it("flat history (zero std) → fair, no divide-by-zero", () => {
     const flat = new Array(14).fill(1.0)
     const s = computeTimingSignal("NVDA", 1.0, flat)
