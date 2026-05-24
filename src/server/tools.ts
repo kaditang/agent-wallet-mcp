@@ -911,13 +911,18 @@ async function buildSwapAndStash(opts: {
     unsignedTxBase64: tx.swapTransactionBase64,
     lastValidBlockHeight: tx.lastValidBlockHeight,
     // Recipe so sign page can request a fresh tx when blockhash expires.
+    // Store the RESOLVED human amount (inHuman), never the raw arg — a "max"
+    // order's opts.amountInHuman is the literal string "max", which made the
+    // rebuild path do Number("max")=NaN → rebuild threw → the page fell back
+    // to expired bytes ("Transaction expired"). inHuman is the numeric amount
+    // (derived from the atomic override for max), so rebuild re-quotes cleanly.
     rebuildRecipe: {
       inputMint: opts.inputMint,
       inputDecimals: opts.inputDecimals,
       outputMint: opts.outputMint,
       outputDecimals: opts.outputDecimals,
       outputSymbol: opts.outputSymbol,
-      amountInHuman: opts.amountInHuman,
+      amountInHuman: String(inHuman),
       slippageBps, // already clamped
     },
   })
