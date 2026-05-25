@@ -144,6 +144,9 @@ parties claim; we compose their guarantees.
 | 2026-05-10 | Self-audit pass 3 | NaN guards + eviction logs | 2 low findings closed |
 | 2026-05-11 | Three-agent global audit | Full 3.6k LOC tree | 5 P1 findings closed (`/auth/token` echo, broadcast race, rebuild slippage, sign-page rebuild verify, renderCard XSS) |
 | 2026-05-11 | Audit P2 sweep | Test coverage + redirect_uri | 6 new tests for fee-payer / rebuild-cap / auth e2e; redirect_uri scheme guard; `*.localhost` tightened |
+| 2026-05-24 | Three-agent asset-safety audit | tx-path / sign-page / read-tools (post differentiation+stickiness build) | 0 critical. Fixed: honest `/sign/broadcast` claim, rebuild price floor, external-feed range validation (±50% premium / <$1M price / byte caps), suggest_rebalance explicit execute units |
+| 2026-05-24 | #1 WYSIWYS hardening | pre-broadcast simulation backstop | `/sign/broadcast` now simulates every signed tx + blocks gross divergence (output redirected/wrong-mint/over-spend); validated on real SPL + Token-2022 mainnet txs; `PREFLIGHT_ENFORCE` enforcing |
+| 2026-05-25 | Ops/robustness hardening (O1/O2/O3/Y1/Y2/N1/N2/G3) | error handling, defaults, deps, CSV export | Global unhandledRejection/uncaughtException handlers (flush audit+Sentry, exit on uncaught); preflight secure-by-default (`!== "false"`); npm audit fix (non-breaking; 4 moderate uuid transitive remain — not reachable, the only "fix" downgrades web3.js to 0.0.3); quote_tokenized_stock input validation; sign-store TTL-on-read; /healthz rate limit + slot cache; audit flushAuditSync on crash; CSV formula-injection escaping (`csvText`) |
 
 **No external paid audit has been performed.** This is a deliberate
 trade-off: we operate no custom Solana programs, no smart contracts, no
