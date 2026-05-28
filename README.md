@@ -16,6 +16,8 @@ Connect this MCP server to **Claude**, **Cursor**, **Claude Code**, or any MCP-c
 
 You sign every transaction in **your own Phantom (or other Solana wallet)**. We do not custody funds, hold keys, or co-sign. Architecturally we are a *service* — closer to Tradingview than to a wallet.
 
+> **Signals to act on:** pair this with [StockWaves](https://stockwaves.net) — pay-per-call quant signals (equities / crypto / cross-asset macro) over the x402 protocol. StockWaves tells an agent *what* to trade; this server lets it *execute* non-custodially.
+
 ## Why this exists
 
 Tokenized US equities (Backed's xStocks, Ondo Global Markets) and on-chain treasury products are the fastest-growing real-world-asset (RWA) category. As of mid-2026 these have real liquidity on Solana — NVDAx, TSLAx, SPYx all carry $300K-$3M each, with ~$5/share trades incurring zero detectable price impact.
