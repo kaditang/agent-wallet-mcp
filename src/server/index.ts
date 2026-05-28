@@ -96,38 +96,42 @@ const healthLimiter = rateLimit({
   message: { ok: false, error: "rate limited" },
 })
 
-// Health check — used by uptime monitors. Confirms server is up and at least
-// one Solana RPC endpoint responds. Unauthenticated, so: loose rate limit +
-// a 5s slot cache so a flood can't amplify onto our RPC quota.
+// Health check — Fly's machine-restart trigger. It tests LIVENESS only: if
+// this handler runs, the Node process is up, which is the only thing a
+// restart could fix. We deliberately DO NOT block on a live Solana RPC call
+// here: a slow/throttled RPC was causing /healthz to exceed Fly's 5s health
+// timeout → Fly restarted the whole machine → every live mcp-remote bridge
+// dropped (MCP "disconnected" in Claude). Restarting can't fix a slow RPC, so
+// gating liveness on it was wrong. The slot is refreshed in the BACKGROUND
+// (fire-and-forget) and reported best-effort in non-prod; RPC reachability is
+// surfaced via Sentry + actual tool-call failures, not by killing the server.
 const SLOT_CACHE_TTL_MS = 5_000
-let slotCache: { value: number; expiresAt: number } | null = null
-app.get("/healthz", healthLimiter, async (_req, res) => {
-  const start = Date.now()
+let slotCache: { value: number; fetchedAt: number; expiresAt: number } | null = null
+function refreshSlotCacheInBackground() {
+  if (slotCache && Date.now() < slotCache.expiresAt) return
+  // Reserve the window immediately so we don't fire N concurrent refreshes.
+  slotCache = { ...(slotCache ?? { value: 0, fetchedAt: 0 }), expiresAt: Date.now() + SLOT_CACHE_TTL_MS }
+  void withRpcFallback((c) => c.getSlot())
+    .then((slot) => {
+      slotCache = { value: slot, fetchedAt: Date.now(), expiresAt: Date.now() + SLOT_CACHE_TTL_MS }
+    })
+    .catch(() => {
+      /* leave prior cache; RPC trouble is reported elsewhere, not here */
+    })
+}
+app.get("/healthz", healthLimiter, (_req, res) => {
   const detailed = process.env.NODE_ENV !== "production"
-  try {
-    let slot: number
-    let cached = false
-    if (slotCache && Date.now() < slotCache.expiresAt) {
-      slot = slotCache.value
-      cached = true
-    } else {
-      slot = await withRpcFallback((c) => c.getSlot())
-      slotCache = { value: slot, expiresAt: Date.now() + SLOT_CACHE_TTL_MS }
-    }
-    res.json(
-      detailed
-        ? {
-            ok: true,
-            slot,
-            slotCached: cached,
-            rpcLatencyMs: Date.now() - start,
-            uptimeSec: Math.floor(process.uptime()),
-          }
-        : { ok: true },
-    )
-  } catch (e) {
-    res.status(503).json({ ok: false, error: "no Solana RPC reachable" })
-  }
+  refreshSlotCacheInBackground() // non-blocking
+  res.json(
+    detailed
+      ? {
+          ok: true,
+          slot: slotCache?.value || null,
+          slotAgeMs: slotCache?.fetchedAt ? Date.now() - slotCache.fetchedAt : null,
+          uptimeSec: Math.floor(process.uptime()),
+        }
+      : { ok: true },
+  )
 })
 
 // --- OAuth 2.1 metadata stubs for MCP HTTP clients (mcp-remote etc.) ----
