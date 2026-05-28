@@ -1,0 +1,30 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.kaditang/agent-wallet-mcp",
+  "description": "Non-custodial RWA + yield service for AI agents on Solana — compare USDC yields, quote/buy tokenized US stocks (Backed xStocks) and Ondo USDY treasuries. User signs in their own wallet; we never custody funds or co-sign.",
+  "repository": {
+    "url": "https://github.com/kaditang/agent-wallet-mcp",
+    "source": "github"
+  },
+  "websiteUrl": "https://autoyield.org",
+  "version": "0.2.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@kaditang/agent-wallet-mcp",
+      "version": "0.2.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "SOL_RPC",
+          "description": "Solana RPC URL (e.g. a Helius endpoint). Optional — falls back to public mainnet-beta if unset.",
+          "isRequired": false,
+          "isSecret": true,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}
