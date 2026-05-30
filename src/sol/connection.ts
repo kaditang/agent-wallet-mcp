@@ -30,7 +30,8 @@ const TRANSIENT_PATTERNS = [
   /429/,
   /Too Many Requests/i,
   /rate limit/i,
-  /timeout/i,
+  /timeout/i, // includes our own "RPC call timeout after Nms" → fail over
+  /timed out/i,
   /ECONNRESET/,
   /EAI_AGAIN/,
   /fetch failed/i,
@@ -43,7 +44,41 @@ function isTransient(err: unknown): boolean {
 }
 
 // One Connection per endpoint. Reused across calls.
-const pool = SOL_RPC_ENDPOINTS.map((url) => new Connection(url, "confirmed"))
+// disableRetryOnRateLimit: web3.js otherwise retries a 429 up to 5× with
+// exponential backoff (~15s) BEFORE throwing — which would defeat our own
+// fallback chain (we'd wait 15s on the throttled primary instead of failing
+// over immediately). We own 429 handling via isTransient + the loop below.
+const pool = SOL_RPC_ENDPOINTS.map(
+  (url) =>
+    new Connection(url, { commitment: "confirmed", disableRetryOnRateLimit: true }),
+)
+
+// Per-call timeout. The fallback loop below only advances on a THROWN error —
+// an endpoint that accepts the request but responds slowly (or hangs) would
+// otherwise block the whole request indefinitely. Racing each attempt against
+// a timeout converts "slow" into "transient failure" so the chain advances.
+// This is the same bug class that let a slow RPC stall /healthz into a restart
+// loop — here it protects every tool/broadcast read instead of the health path.
+const RPC_CALL_TIMEOUT_MS = Number(process.env.RPC_CALL_TIMEOUT_MS) || 8_000
+
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`RPC call timeout after ${ms}ms (${label})`)),
+      ms,
+    )
+    p.then(
+      (v) => {
+        clearTimeout(timer)
+        resolve(v)
+      },
+      (e) => {
+        clearTimeout(timer)
+        reject(e)
+      },
+    )
+  })
+}
 
 /** The "primary" connection — exported for backward-compat code paths. */
 export const solConn = pool[0]
@@ -58,7 +93,7 @@ export async function withRpcFallback<T>(
   let lastErr: unknown
   for (let i = 0; i < pool.length; i++) {
     try {
-      return await fn(pool[i])
+      return await withTimeout(fn(pool[i]), RPC_CALL_TIMEOUT_MS, `endpoint #${i}`)
     } catch (e) {
       lastErr = e
       if (!isTransient(e)) throw e
