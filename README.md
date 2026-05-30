@@ -39,14 +39,16 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (Claude
 }
 ```
 
-> The npm package is being published. While that's in progress, clone this repo and run:
+> The npm package is **published** as [`@kaditang/agent-wallet-mcp`](https://www.npmjs.com/package/@kaditang/agent-wallet-mcp) (and listed in the official MCP Registry) — the config above runs it directly via `npx`, no clone needed.
+>
+> To run from source instead (for development), clone this repo and run:
 > ```bash
 > git clone https://github.com/kaditang/agent-wallet-mcp.git
 > cd agent-wallet-mcp && npm install
-> cp .env.example .env   # then fill in SOL_RPC, DEMO_TOKENS
+> cp .env.example .env   # then fill in SOL_RPC (api keys are minted via Phantom at /account)
 > npm run mcp:http       # serves on :3030
 > ```
-> Then point your MCP client at `http://localhost:3030/mcp` with a `Authorization: Bearer <your-token>` header (configure tokens in `.env`'s `DEMO_TOKENS`).
+> Then point your MCP client at `http://localhost:3030/mcp` with an `Authorization: Bearer <your-api-key>` header.
 
 ### Solana RPC endpoint (recommended)
 

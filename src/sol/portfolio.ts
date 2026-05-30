@@ -44,9 +44,18 @@ async function priceViaJupiter(
     const probeShares = Number(probeAtomic) / 10 ** decimals
     const probeUsdc = Number(quote.outAmount) / 1_000_000
     const pricePerShareUsdc = probeShares > 0 ? probeUsdc / probeShares : 0
+    // A sub-cent probe can quote outAmount "0" → pricePerShareUsdc 0. That is a
+    // PRICING FAILURE, not a real $0 holding: counting it as $0 would silently
+    // drop the position from totalValueUsdc and the rebalance base. Mark it
+    // unpriced instead so it surfaces rather than vanishing.
+    if (quote.outAmount === "0" || pricePerShareUsdc <= 0) {
+      return { note: "could not price (amount too small to quote)" }
+    }
     return { pricePerShareUsdc, valueUsdc: pricePerShareUsdc * amount }
   } catch (e) {
-    return { note: `pricing failed: ${(e as Error).message.slice(0, 80)}` }
+    // Strip any URL — a Jupiter/RPC error can embed an endpoint with ?api-key=…
+    const msg = (e as Error).message.replace(/https?:\/\/[^\s"']+/gi, "[url]")
+    return { note: `pricing failed: ${msg.slice(0, 80)}` }
   }
 }
 

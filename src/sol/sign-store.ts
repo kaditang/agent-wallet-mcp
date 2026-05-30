@@ -13,6 +13,12 @@ import { randomUUID } from "node:crypto"
 
 const STORE_PATH = process.env.SIGN_STORE_PATH ?? "data/sign-store.json"
 const TTL_MS = 24 * 60 * 60 * 1000
+/** A broadcastingAt older than this with no recorded signature is considered a
+ *  crashed/abandoned broadcast — the lock is stale and the id becomes
+ *  retryable. A real broadcast resolves (and records a signature) in well under
+ *  this window. An entry WITH a signature is a completed broadcast and stays
+ *  locked regardless of age. */
+const BROADCAST_LOCK_STALE_MS = 60 * 1000
 
 export type SignableTx = {
   id: string
@@ -84,6 +90,17 @@ function loadFromDisk() {
     const now = Date.now()
     for (const tx of arr) {
       if (now - tx.createdAt > TTL_MS) continue
+      // Clear a stale broadcast lock left by a crash mid-broadcast: an entry
+      // with broadcastingAt set, no signature, and older than the stale window
+      // would otherwise be "in flight" forever. A completed broadcast (has a
+      // signature) keeps its lock.
+      if (
+        tx.broadcastingAt &&
+        !tx.signature &&
+        now - tx.broadcastingAt > BROADCAST_LOCK_STALE_MS
+      ) {
+        delete tx.broadcastingAt
+      }
       STORE.set(tx.id, tx)
     }
     console.log(`[sign-store] loaded ${STORE.size} entries from ${STORE_PATH}`)
@@ -214,7 +231,14 @@ export async function withBroadcastLock(
     throw new BroadcastLockError("already-broadcast")
   }
   if (tx?.broadcastingAt) {
-    throw new BroadcastLockError("in-flight")
+    // A lock with no in-memory LOCKS promise that is older than the stale
+    // window is an abandoned broadcast (e.g. survived a crash + reload) —
+    // clear it so the id is retryable rather than locked forever.
+    if (!LOCKS.has(id) && Date.now() - tx.broadcastingAt > BROADCAST_LOCK_STALE_MS) {
+      delete tx.broadcastingAt
+    } else {
+      throw new BroadcastLockError("in-flight")
+    }
   }
   const existing = LOCKS.get(id)
   if (existing) {

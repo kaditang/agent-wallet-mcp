@@ -5,6 +5,7 @@
 import { z } from "zod"
 import { findXStock, SOL_USDC, XSTOCKS } from "../sol/tokens.js"
 import { jupiterQuote, jupiterSwapTx } from "../sol/jupiter.js"
+import { sanitizeError } from "./auth.js"
 import { compareYields } from "../sol/yields.js"
 import { getLiveTokenMeta } from "../sol/jupiter-meta.js"
 import { stashSignableTx, getSignBaseUrl } from "../sol/sign-store.js"
@@ -307,6 +308,14 @@ export async function dispatch(
       )
     }
     const amountAtomic = BigInt(Math.round(amountNum * 1_000_000))
+    // A sub-micro input (e.g. 0.0000004) passes the >0 guard but rounds to 0
+    // atomic — Jupiter would return a confusing error. Reject cleanly here.
+    if (amountAtomic <= 0n) {
+      return text(
+        JSON.stringify({ available: false, reason: "amount below minimum unit" }, null, 2),
+        true,
+      )
+    }
     const q = await jupiterQuote({
       inputMint: SOL_USDC,
       outputMint: stock.mint,
@@ -600,8 +609,10 @@ export async function dispatch(
         ),
       )
     } catch (e) {
+      // Route through sanitizeError so an RPC/Helius error string carrying a
+      // URL with ?api-key=... can't surface to the MCP client.
       return text(
-        JSON.stringify({ signature, error: (e as Error).message }, null, 2),
+        JSON.stringify({ signature, error: sanitizeError(e) }, null, 2),
         true,
       )
     }
@@ -857,6 +868,11 @@ async function buildSwapAndStash(opts: {
   // Exact atomic when overriding (max); else float-round the human amount.
   const amountAtomic =
     opts.amountAtomicOverride ?? BigInt(Math.round(inHuman * 10 ** opts.inputDecimals))
+  // A sub-unit input rounds to 0 atomic — reject cleanly rather than letting
+  // Jupiter return a confusing error on a zero-amount quote.
+  if (amountAtomic <= 0n) {
+    return text(JSON.stringify({ ok: false, reason: "amount below minimum unit" }), true)
+  }
   const quote = await jupiterQuote({
     inputMint: opts.inputMint,
     outputMint: opts.outputMint,

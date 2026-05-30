@@ -7,8 +7,17 @@ import { captureError } from "./sentry.js"
  * paths, stack traces, and zod schema internals. In dev mode (NODE_ENV !==
  * 'production'), passes through to aid debugging.
  */
+/**
+ * Strip any http(s) URL from a string. RPC/Helius errors frequently embed the
+ * full endpoint — including `?api-key=...` — so this runs in ALL environments
+ * (dev included) before any other handling, so a key can never surface.
+ */
+export function stripUrls(s: string): string {
+  return s.replace(/https?:\/\/[^\s"']+/gi, "[url]")
+}
+
 export function sanitizeError(e: unknown): string {
-  const raw = e instanceof Error ? e.message : String(e)
+  const raw = stripUrls(e instanceof Error ? e.message : String(e))
   if (process.env.NODE_ENV !== "production") return raw
 
   // Strip file paths like /Users/.../foo.ts:123:45
@@ -100,12 +109,15 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
       return
     }
   }
-  // Path 2: DEMO_TOKENS fallback
-  const demoUser = DEMO_TABLE.get(token)
-  if (demoUser) {
-    req.userId = demoUser
-    next()
-    return
+  // Path 2: DEMO_TOKENS fallback — a static token→userId bypass. Only honored
+  // OUTSIDE production so a stray DEMO_TOKENS env in prod can't open a backdoor.
+  if (process.env.NODE_ENV !== "production") {
+    const demoUser = DEMO_TABLE.get(token)
+    if (demoUser) {
+      req.userId = demoUser
+      next()
+      return
+    }
   }
   res.set("WWW-Authenticate", WWW_AUTH)
   res.status(401).json({ error: "unauthorized" })

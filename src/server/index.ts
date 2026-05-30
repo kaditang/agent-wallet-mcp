@@ -649,6 +649,32 @@ app.post("/sign/broadcast", broadcastLimiter, async (req, res) => {
         // Preflight must never block a legit tx on its own failure.
         console.warn(`[preflight] errored (proceeding): ${(e as Error).message?.slice(0, 120)}`)
       }
+    } else if (PREFLIGHT_ENFORCE) {
+      // Fail-closed: under enforce mode we have NO recipe to run the delta
+      // check against, so we genuinely cannot verify this tx matches the
+      // reviewed deal. Every tool (buildSwapAndStash) stamps both fields, so
+      // a stash missing them is anomalous — refuse rather than broadcast blind.
+      // (The simulation-ambiguity case — verdict "skip" — still fails OPEN
+      // above; only "no recipe at all" is fail-closed.)
+      captureMessage("preflight cannot verify: stash lacks rebuildRecipe/minOut", "error", {
+        tags: { signId: id, enforce: "true" },
+      })
+      audit({
+        kind: "broadcast_failure",
+        ip: req.ip,
+        signId: id,
+        error: "preflight cannot verify: no rebuild recipe",
+        extra: {
+          hasRecipe: Boolean(stashed.rebuildRecipe),
+          hasMinOut: stashed.minOut != null,
+          enforce: PREFLIGHT_ENFORCE,
+        },
+      })
+      res.status(400).json({
+        error:
+          "cannot verify this transaction (no preflight recipe) — refusing to broadcast under enforce mode",
+      })
+      return
     }
 
     // Guard: if the stashed tx has a known lastValidBlockHeight, verify the
@@ -802,6 +828,14 @@ if (process.env.NODE_ENV !== "test") {
   const server = app.listen(port, () => {
     console.log(`autoyield mcp service listening on :${port}`)
   })
+
+  // Bound slow-client / slowloris connections. Without these, a bare POST /mcp
+  // (or a client that dribbles headers) can hold a connection ~6-10s, tying up
+  // a slot. requestTimeout caps total time to receive a request; headersTimeout
+  // caps time to receive just the headers (must be >= requestTimeout's intent;
+  // Node requires headersTimeout to be set after listen for it to take effect).
+  server.requestTimeout = 30_000
+  server.headersTimeout = 35_000
 
   // Graceful shutdown — flush Sentry + audit log before Fly kills us.
   const shutdown = async (signal: string) => {

@@ -3,7 +3,7 @@
 `autoyield` handles a real-money path on Solana mainnet. This doc explains
 what we defend against, what's out of scope, and how to report issues.
 
-This is a living document — last revised **2026-05-11**.
+This is a living document — last revised **2026-05-28**.
 
 ---
 
@@ -58,7 +58,7 @@ parties claim; we compose their guarantees.
 | Threat | Defense | Where |
 |---|---|---|
 | AI agent / MCP client is malicious — calls tools to drain user wallet | Every tool returns an *unsigned* tx + sign URL. No tool can spend on the user's behalf. | Whole architecture |
-| Stolen sign URL → attacker broadcasts a different signed tx | `/sign/broadcast` verifies the signed tx's fee-payer equals the stashed wallet + signature present. (Note: this is NOT a full WYSIWYS check — see "WYSIWYS gap" under known gaps; Phantom's prompt is the real backstop.) | `src/server/index.ts` `/sign/broadcast` |
+| Stolen sign URL → attacker broadcasts a different signed tx | `/sign/broadcast` verifies the signed tx's fee-payer equals the stashed wallet + signature present, AND (with `PREFLIGHT_ENFORCE=true`, the production default) re-simulates the signed tx server-side and **blocks gross balance-delta divergence** from the reviewed deal — failing closed when it cannot verify. Phantom's own prompt is a second backstop. | `src/server/index.ts` `/sign/broadcast` |
 | Sign-id leaks → attacker mills `/sign/rebuild` for free Jupiter quotes | Per-id rebuild cap (`REBUILD_CAP_PER_ID = 20`). 429 after exhaustion. | `src/sol/sign-store.ts:reserveRebuild` |
 | Sign-id leaks → attacker tries double-broadcast | Per-id mutex (`withBroadcastLock`) — second submission gets `BroadcastLockError`. Signature recorded inside lock. | `src/sol/sign-store.ts:withBroadcastLock` |
 | Phishing sign-page on attacker domain | `web/src/sign-main.ts` host allowlist; refuses to render outside `autoyield.org` / `www.autoyield.org`. `?api=` override is localhost-only. | `web/src/sign-main.ts:checkOriginOrAbort` |
@@ -164,10 +164,10 @@ real customer needs it.
 
 | Metric | Value | As of |
 |---|---|---|
-| Mainnet transactions through `/sign/broadcast` | 9 | 2026-05-11 |
+| Mainnet transactions through `/sign/broadcast` | 14 | 2026-05-28 |
 | Distinct test wallets | 3 (self + 2 external testers) | 2026-05-11 |
 | Funds lost / stuck | 0 | 2026-05-11 |
-| Test coverage | 22 vitest tests, all green | 2026-05-11 |
+| Test coverage | 58 vitest tests, all green | 2026-05-28 |
 | RPC primary | Helius mainnet | 2026-05-11 |
 
 All on-chain proof is public:
