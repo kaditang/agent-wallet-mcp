@@ -80,8 +80,16 @@ export async function compareYields(opts?: {
 }): Promise<{
   asOf: string
   results: YieldEntry[]
+  /** Best risk-adjusted pool the user can ACT on today (Solana, executable). */
   topExecutable?: YieldEntry
-  /** Best risk-adjusted executable pool — the one we'd actually recommend. */
+  /** Best risk-adjusted pool ACROSS ALL CHAINS — may be read-only in V1 (e.g.
+   *  an Ethereum pool). Surfaces the true market-best even when we can't yet
+   *  execute it, so the user sees the full picture, not just the Solana subset. */
+  topByRiskAdjustedOverall?: YieldEntry
+  /** @deprecated alias of topExecutable, kept for back-compat. The historical
+   *  name promised "the one to recommend" but always returned the best
+   *  EXECUTABLE pool; callers should use topExecutable (actionable) or
+   *  topByRiskAdjustedOverall (true global best) explicitly. */
   topByRiskAdjusted?: YieldEntry
   rankedBy: "riskAdjustedApy"
 }> {
@@ -163,14 +171,17 @@ export async function compareYields(opts?: {
   // a 12% reward-farm on a thin unaudited pool sorts BELOW a 6% pure-lending
   // base rate on deep, battle-tested Kamino.
   results.sort((a, b) => b.riskAdjustedApy - a.riskAdjustedApy)
+  // results[0] is the global best risk-adjusted pool (may be read-only in V1);
+  // topExecutable is the best one the user can actually act on today.
+  const topByRiskAdjustedOverall = results[0]
   const topExecutable = results.find((r) => r.executable)
-  const topByRiskAdjusted = topExecutable // results already sorted by risk-adj
 
   return {
     asOf: new Date().toISOString(),
     results: results.slice(0, 20),
     topExecutable,
-    topByRiskAdjusted,
+    topByRiskAdjustedOverall,
+    topByRiskAdjusted: topExecutable, // deprecated back-compat alias
     rankedBy: "riskAdjustedApy",
   }
 }

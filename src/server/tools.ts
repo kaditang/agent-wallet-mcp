@@ -32,7 +32,7 @@ const TOOLS = [
   {
     name: "compare_yields",
     description:
-      "Rank USDC lending + tokenized-treasury yields across major chains (Solana, Ethereum, Base, Arbitrum) via DefiLlama, RISK-ADJUSTED. Results are ranked by riskAdjustedApy (not headline APY): each pool's APY is discounted by volatility (sigma), TVL depth, protocol risk, DefiLlama's stability prediction, reward-emission dependence, and IL exposure. Each entry includes riskScore (0-100), riskFactors breakdown, and riskNotes explaining the discount — surface these so the user understands WHY a lower headline APY may be the better pick. Solana protocols (Kamino, MarginFi, Drift, JLP) are executable=true; other chains read-only in V1. topByRiskAdjusted is the one to recommend.",
+      "Rank USDC lending + tokenized-treasury yields across major chains (Solana, Ethereum, Base, Arbitrum) via DefiLlama, RISK-ADJUSTED. Results are ranked by riskAdjustedApy (not headline APY): each pool's APY is discounted by volatility (sigma), TVL depth, protocol risk, DefiLlama's stability prediction, reward-emission dependence, and IL exposure. Each entry includes riskScore (0-100), riskFactors breakdown, and riskNotes explaining the discount — surface these so the user understands WHY a lower headline APY may be the better pick. Solana protocols (Kamino, MarginFi, Drift, JLP) are executable=true; other chains read-only in V1. Returns BOTH topExecutable (best risk-adjusted pool the user can act on today — recommend this for action) AND topByRiskAdjustedOverall (best across ALL chains, may be read-only in V1 — surface it so the user sees the true market-best, e.g. 'the global best is X% on Ethereum but the best you can execute now is Y% on Solana'). topByRiskAdjusted is a deprecated alias of topExecutable.",
     inputSchema: {
       type: "object",
       properties: {
@@ -372,9 +372,13 @@ export async function dispatch(
     const { wallet } = z.object({ wallet: z.string().min(32).max(44) }).parse(args)
     const portfolio = await getPortfolio(wallet)
 
-    // Best risk-adjusted executable yield right now (best-effort).
+    // Best risk-adjusted EXECUTABLE yield right now (best-effort). Use the
+    // executable pick, not the global best — portfolio_health gives actionable
+    // advice, so comparing against a pool the user can't yet execute would
+    // mislead. (compare_yields also returns topByRiskAdjustedOverall for the
+    // full-market view.)
     const yields = await compareYields().catch(() => null)
-    const best = yields?.topByRiskAdjusted
+    const best = yields?.topExecutable
 
     const notes: string[] = []
 
