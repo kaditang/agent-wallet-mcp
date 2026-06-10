@@ -152,13 +152,52 @@ async function loadSnapshots(): Promise<SnapshotRecord[]> {
   }
 }
 
-/** Extract the trailing premium history for one ticker from the snapshots. */
+// --- market-regime awareness ---
+// The snapshot history mixes two statistically different regimes: during US
+// market hours the premium measures the real xStock-vs-NYSE markup; outside
+// them the underlying price is frozen at the last close while the xStock keeps
+// trading 24/7, so the "premium" mostly measures after-hours/weekend drift.
+// 17 days of data showed ~82% of samples are closed-market and they inflate
+// the baseline std (e.g. GOOGL ±5% extremes are weekend artifacts), dulling
+// the z-score. Fix: compare the current premium against same-regime history.
+
+export type MarketRegime = "open" | "closed"
+
+/**
+ * Is the US stock market in regular trading hours (Mon-Fri 9:30-16:00
+ * America/New_York)? Ignores market holidays — a holiday misclassifies as
+ * "open", which only mixes a few stale samples into the open baseline; it
+ * never produces an unsafe signal (and the signal is advisory anyway).
+ */
+export function usMarketRegime(now: Date = new Date()): MarketRegime {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short",
+    hour: "numeric",
+    minute: "numeric",
+    hour12: false,
+  }).formatToParts(now)
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? ""
+  const wd = get("weekday")
+  if (wd === "Sat" || wd === "Sun") return "closed"
+  const mins = Number(get("hour")) * 60 + Number(get("minute"))
+  return mins >= 9 * 60 + 30 && mins < 16 * 60 ? "open" : "closed"
+}
+
+function regimeOf(rec: SnapshotRecord): MarketRegime {
+  return rec.marketState === "open" ? "open" : "closed"
+}
+
+/** Extract the trailing premium history for one ticker from the snapshots.
+ *  Pass `regime` to restrict to same-regime samples (open vs closed). */
 export function premiumHistoryFor(
   records: SnapshotRecord[],
   ticker: string,
+  regime?: MarketRegime,
 ): number[] {
   const out: number[] = []
   for (const rec of records) {
+    if (regime && regimeOf(rec) !== regime) continue
     const e = rec.entries?.find((x) => x.ticker === ticker)
     if (e && e.premiumPct != null && Number.isFinite(e.premiumPct)) {
       out.push(e.premiumPct)
@@ -178,7 +217,19 @@ export async function getTimingSignal(
   currentPremiumPct?: number | null,
 ): Promise<TimingSignal> {
   const records = await loadSnapshots()
-  const history = premiumHistoryFor(records, ticker)
+
+  // Same-regime baseline: a premium observed while the US market is open is
+  // only comparable to other open-market samples (and vice versa). Fall back
+  // to the full mixed history when the regime slice is too thin — better a
+  // mixed baseline than "insufficient-history" while open samples accrue.
+  const regime = usMarketRegime()
+  let history = premiumHistoryFor(records, ticker, regime)
+  let baselineDesc = `${regime}-market baseline`
+  if (history.length < MIN_SAMPLES) {
+    history = premiumHistoryFor(records, ticker)
+    baselineDesc = `mixed-hours baseline (only ${premiumHistoryFor(records, ticker, regime).length} ${regime}-market samples yet)`
+  }
+
   let current = currentPremiumPct ?? null
   if (current == null && history.length > 0) {
     current = history[history.length - 1] // latest snapshot as fallback
@@ -189,7 +240,9 @@ export async function getTimingSignal(
     currentPremiumPct == null && history.length > 0
       ? history.slice(0, -1)
       : history
-  return computeTimingSignal(ticker, current, baseline)
+  const signal = computeTimingSignal(ticker, current, baseline)
+  signal.note += ` [${baselineDesc}${regime === "closed" ? "; US market closed now — premium is vs last close" : ""}]`
+  return signal
 }
 
 // --- live underlying price (for computing the CURRENT premium) ---
