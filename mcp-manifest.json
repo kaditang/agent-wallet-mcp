@@ -2,7 +2,7 @@
   "$schema": "https://schemas.mcpservers.org/manifest.v1.json",
   "name": "agent-wallet",
   "displayName": "Agent Wallet — Non-custodial RWA service for AI",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Connect this MCP and your AI can compare on-chain yields, quote tokenized US equities, and build ready-to-sign Solana transactions for buying / selling Backed xStocks (16 tickers — NVDAx, TSLAx, SPYx, QQQx, COINx, …) or depositing into Ondo USDY tokenized treasuries. Funds stay in your existing Phantom wallet — we never sign or custody.",
   "tagline": "Your AI's RWA + yield analyst on Solana. Non-custodial.",
   "homepage": "https://autoyield.org",

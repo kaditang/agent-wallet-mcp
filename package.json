@@ -1,6 +1,6 @@
 {
   "name": "@kaditang/agent-wallet-mcp",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "mcpName": "io.github.kaditang/agent-wallet-mcp",
   "type": "module",
   "description": "Non-custodial RWA + yield service for AI agents on Solana. Compare yields, quote/buy/sell tokenized US equities (Backed xStocks) and tokenized treasuries (Ondo USDY). User signs in their own wallet — we never sign.",
@@ -22,7 +22,7 @@
   "license": "MIT",
   "main": "dist/server/index.js",
   "bin": {
-    "agent-wallet-mcp": "./dist/server/stdio.js"
+    "agent-wallet-mcp": "./dist/stdio.bundle.cjs"
   },
   "files": [
     "dist",
@@ -31,7 +31,8 @@
   ],
   "scripts": {
     "mcp:http": "tsx src/server/index.ts",
-    "build": "tsc",
+    "build": "tsc && npm run bundle:stdio",
+    "bundle:stdio": "esbuild src/server/stdio.ts --bundle --platform=node --target=node20 --format=cjs --outfile=dist/stdio.bundle.cjs --external:bufferutil --external:utf-8-validate",
     "start": "node dist/server/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -62,6 +63,7 @@
     "@types/express": "^5.0.6",
     "@types/node": "^22.19.17",
     "@types/supertest": "^6.0.2",
+    "esbuild": "^0.28.1",
     "jsdom": "^25.0.1",
     "supertest": "^7.0.0",
     "tsx": "^4.21.0",
