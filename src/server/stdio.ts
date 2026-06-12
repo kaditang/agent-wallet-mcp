@@ -13,6 +13,10 @@
 /* eslint-disable no-console */
 console.log = (...args: unknown[]) => console.error(...args)
 
+// Mark local-stdio mode for the tool layer: there is no HTTP server in this
+// process, so build_* tools must not emit hosted sign-page URLs (dead links).
+process.env.MCP_LOCAL_STDIO = "1"
+
 async function main() {
   const [{ Server }, { StdioServerTransport }, types, tools] = await Promise.all([
     import("@modelcontextprotocol/sdk/server/index.js"),
@@ -22,7 +26,7 @@ async function main() {
   ])
 
   const server = new Server(
-    { name: "agent-wallet", version: "0.2.2" },
+    { name: "agent-wallet", version: "0.2.3" },
     { capabilities: { tools: {} } },
   )
   server.setRequestHandler(types.ListToolsRequestSchema, async () => ({

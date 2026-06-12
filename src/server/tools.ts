@@ -969,7 +969,13 @@ async function buildSwapAndStash(opts: {
     symbol: opts.symbol ?? opts.outputSymbol,
     extra: { expectedOut, slippageBps, userId: opts.userId },
   })
-  const signUrl = `${getSignBaseUrl()}/sign.html?id=${signId}`
+  // Local stdio mode (npx install) has no HTTP server: the stash lives only in
+  // this process, so a sign-page URL would be a dead link (and the default
+  // base is a Vite dev port). Be honest instead of handing the user a 404 —
+  // the unsignedTransaction below is still fully usable with any wallet that
+  // can sign a base64 VersionedTransaction.
+  const isLocalStdio = process.env.MCP_LOCAL_STDIO === "1" && !process.env.WEB_BASE_URL
+  const signUrl = isLocalStdio ? null : `${getSignBaseUrl()}/sign.html?id=${signId}`
 
   return text(
     JSON.stringify(
@@ -981,6 +987,12 @@ async function buildSwapAndStash(opts: {
         ...(opts.protocol ? { asset: opts.protocol } : {}),
         chain: "solana",
         wallet: opts.wallet,
+        ...(isLocalStdio
+          ? {
+              localStdioNote:
+                "Running as a local stdio install: the hosted sign-page flow is unavailable (no server holds this transaction). Either sign the base64 unsignedTransaction below with your own tooling, or connect to the hosted MCP (https://autoyield-api.fly.dev/mcp — see https://autoyield.org) for the full Phantom sign-page flow with server-side safety preflight.",
+            }
+          : {}),
         quote: {
           inAmount: inHuman,
           inputMint: opts.inputMint,
