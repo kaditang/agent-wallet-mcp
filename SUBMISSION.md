@@ -70,7 +70,7 @@ For animated demo: use Kap (free, mac).
 - "Non-custodial. Funds never leave the user's wallet."
 - "Solana-native. Where the real RWA liquidity is (xStocks $2-3M, USDY $1M+ on Jupiter)."
 - "GENIUS / CLARITY safe — we route to securities (USDY) and DEX trades, not stablecoin issuer interest."
-- "10 tools, all chain-aware: compare yields, buy/sell, snapshot, track."
+- "13 tools, all chain-aware: compare yields, buy/sell, snapshot, track."
 - "Works in Claude / Cursor / Claude Code today."
 
 ## 8. Don't ship until

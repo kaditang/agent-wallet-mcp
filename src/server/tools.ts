@@ -72,7 +72,7 @@ const TOOLS = [
   {
     name: "quote_tokenized_stock",
     description:
-      "Live Jupiter quote for buying a Backed xStock with USDC on Solana. Returns expected output, price impact, route. READ ONLY — no on-chain action.",
+      "Live Jupiter quote for buying a Backed xStock with USDC on Solana. Returns expected output, price impact, route, AND a best-entry timing signal (live premium vs the underlying NYSE price, z-scored against a same-market-regime trailing baseline: good-entry / fair / rich-wait). Surface the timing note to the user. READ ONLY — no on-chain action.",
     inputSchema: {
       type: "object",
       properties: {
@@ -226,6 +226,13 @@ const TOOLS = [
   },
 ] as const
 
+// Strict base58 wallet validation (same regex as /sol/balances). min/max alone
+// let malformed strings flow into Jupiter/stash and die later with confusing
+// errors; this rejects them cleanly at the schema boundary.
+const walletSchema = z
+  .string()
+  .regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/, "invalid base58 wallet address")
+
 export async function dispatch(
   {
     name,
@@ -369,7 +376,7 @@ export async function dispatch(
   }
 
   if (name === "portfolio_health") {
-    const { wallet } = z.object({ wallet: z.string().min(32).max(44) }).parse(args)
+    const { wallet } = z.object({ wallet: walletSchema }).parse(args)
     const portfolio = await getPortfolio(wallet)
 
     // Best risk-adjusted EXECUTABLE yield right now (best-effort). Use the
@@ -457,7 +464,7 @@ export async function dispatch(
   if (name === "suggest_rebalance") {
     const { wallet, targets, driftThresholdPct, minTradeUsd } = z
       .object({
-        wallet: z.string().min(32).max(44),
+        wallet: walletSchema,
         targets: z
           .array(
             z.object({
@@ -560,7 +567,7 @@ export async function dispatch(
   if (name === "export_history") {
     const { wallet, limit } = z
       .object({
-        wallet: z.string().min(32).max(44),
+        wallet: walletSchema,
         limit: z.number().int().min(1).max(200).optional(),
       })
       .parse(args)
@@ -582,7 +589,7 @@ export async function dispatch(
   }
 
   if (name === "get_portfolio") {
-    const { wallet } = z.object({ wallet: z.string().min(32).max(44) }).parse(args)
+    const { wallet } = z.object({ wallet: walletSchema }).parse(args)
     const result = await getPortfolio(wallet)
     return text(JSON.stringify(result, null, 2))
   }
@@ -626,7 +633,7 @@ export async function dispatch(
   if (name === "build_deposit_yield_tx") {
     const { wallet, asset, amountUsdc, slippageBps } = z
       .object({
-        wallet: z.string().min(32).max(44),
+        wallet: walletSchema,
         asset: z.string(),
         amountUsdc: z.string(),
         slippageBps: z.number().int().min(1).max(10000).optional(),
@@ -662,7 +669,7 @@ export async function dispatch(
   if (name === "build_buy_xstock_tx") {
     const { wallet, ticker, amountUsdc, slippageBps } = z
       .object({
-        wallet: z.string().min(32).max(44),
+        wallet: walletSchema,
         ticker: z.string().min(1).max(8),
         amountUsdc: z.string(),
         slippageBps: z.number().int().min(1).max(10000).optional(),
@@ -692,7 +699,7 @@ export async function dispatch(
   if (name === "build_sell_xstock_tx") {
     const { wallet, ticker, amountShares, slippageBps } = z
       .object({
-        wallet: z.string().min(32).max(44),
+        wallet: walletSchema,
         ticker: z.string().min(1).max(8),
         amountShares: z.string(),
         slippageBps: z.number().int().min(1).max(10000).optional(),
@@ -734,7 +741,7 @@ export async function dispatch(
   if (name === "build_withdraw_yield_tx") {
     const { wallet, asset, amount, slippageBps } = z
       .object({
-        wallet: z.string().min(32).max(44),
+        wallet: walletSchema,
         asset: z.string(),
         amount: z.string(),
         slippageBps: z.number().int().min(1).max(10000).optional(),

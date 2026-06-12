@@ -24,6 +24,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { XSTOCKS } from "../src/sol/tokens.js"
 import { getLiveTokenMeta } from "../src/sol/jupiter-meta.js"
+import { usMarketRegime } from "../src/sol/timing-signal.js"
 
 const OUT_DIR = path.join(process.cwd(), "research", "snapshots")
 const OUT_FILE = path.join(OUT_DIR, "microstructure.ndjson")
@@ -72,17 +73,21 @@ async function underlyingPrice(
 }
 
 // US equity market state. NYSE regular hours Mon-Fri 09:30-16:00 ET.
-// Approximates ET as UTC-4 (EDT). Ignores holidays + the EST/EDT switch —
-// good enough as a research tag; the precise timestamp is also recorded so
-// it can be re-derived later.
+// MUST agree with usMarketRegime (timing-signal.ts) — the runtime signal
+// matches the live regime against these stored labels, so a labeling skew
+// (the old fixed-UTC-4 version was wrong by an hour every winter under EST)
+// silently pollutes the regime-split baselines. Holidays still ignored
+// (both sides, consistently); the precise timestamp is recorded so labels
+// can be re-derived later if needed.
 function usMarketState(
   now: Date,
 ): "open" | "closed-afterhours" | "closed-weekend" {
-  const et = new Date(now.getTime() - 4 * 3600 * 1000)
-  const day = et.getUTCDay() // 0 Sun .. 6 Sat
-  if (day === 0 || day === 6) return "closed-weekend"
-  const mins = et.getUTCHours() * 60 + et.getUTCMinutes()
-  return mins >= 9 * 60 + 30 && mins < 16 * 60 ? "open" : "closed-afterhours"
+  if (usMarketRegime(now) === "open") return "open"
+  const wd = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short",
+  }).format(now)
+  return wd === "Sat" || wd === "Sun" ? "closed-weekend" : "closed-afterhours"
 }
 
 async function main() {

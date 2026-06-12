@@ -645,6 +645,17 @@ app.post("/sign/broadcast", broadcastLimiter, async (req, res) => {
             return
           }
         }
+        if (verdict.verdict === "sim-error" && PREFLIGHT_ENFORCE) {
+          // The tx fails simulation, so it would fail on-chain too — blocking
+          // loses nothing legit, gives a clearer error than a doomed broadcast,
+          // and closes the fail-open loophole for sim/runtime divergence.
+          // (Genuine infra ambiguity still arrives as "skip" and fails open.)
+          res.status(400).json({
+            error: "transaction fails simulation — it would fail on-chain",
+            detail: verdict.reason,
+          })
+          return
+        }
       } catch (e) {
         // Preflight must never block a legit tx on its own failure.
         console.warn(`[preflight] errored (proceeding): ${(e as Error).message?.slice(0, 120)}`)
@@ -763,7 +774,7 @@ app.get("/sol/balances", readLimiter, async (req, res) => {
 app.post("/mcp", buildLimiter, requireAuth, async (req, res) => {
   try {
     const server = new Server(
-      { name: "agent-wallet", version: "0.2.0" },
+      { name: "agent-wallet", version: "0.2.1" },
       { capabilities: { tools: {} } },
     )
     server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: getToolList() as any }))

@@ -138,4 +138,15 @@ describe("usMarketRegime", () => {
     // Mon 2026-06-08 20:00 UTC = 16:00 ET → closed (exclusive)
     expect(usMarketRegime(new Date("2026-06-08T20:00:00Z"))).toBe("closed")
   })
+
+  it("EST (winter) dates use UTC-5 — a fixed UTC-4 implementation fails these", () => {
+    // Mon 2026-01-05. EST = UTC-5: 14:30Z = 09:30 ET → open.
+    expect(usMarketRegime(new Date("2026-01-05T14:30:00Z"))).toBe("open")
+    // 14:00Z = 09:00 ET → closed (a UTC-4 impl would read 10:00 → open).
+    expect(usMarketRegime(new Date("2026-01-05T14:00:00Z"))).toBe("closed")
+    // 20:30Z = 15:30 ET → open (a UTC-4 impl would read 16:30 → closed).
+    expect(usMarketRegime(new Date("2026-01-05T20:30:00Z"))).toBe("open")
+    // 21:00Z = 16:00 ET → closed.
+    expect(usMarketRegime(new Date("2026-01-05T21:00:00Z"))).toBe("closed")
+  })
 })

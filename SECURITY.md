@@ -3,7 +3,7 @@
 `autoyield` handles a real-money path on Solana mainnet. This doc explains
 what we defend against, what's out of scope, and how to report issues.
 
-This is a living document — last revised **2026-05-28**.
+This is a living document — last revised **2026-06-10**.
 
 ---
 
@@ -58,7 +58,7 @@ parties claim; we compose their guarantees.
 | Threat | Defense | Where |
 |---|---|---|
 | AI agent / MCP client is malicious — calls tools to drain user wallet | Every tool returns an *unsigned* tx + sign URL. No tool can spend on the user's behalf. | Whole architecture |
-| Stolen sign URL → attacker broadcasts a different signed tx | `/sign/broadcast` verifies the signed tx's fee-payer equals the stashed wallet + signature present, AND (with `PREFLIGHT_ENFORCE=true`, the production default) re-simulates the signed tx server-side and **blocks gross balance-delta divergence** from the reviewed deal — failing closed when it cannot verify. Phantom's own prompt is a second backstop. | `src/server/index.ts` `/sign/broadcast` |
+| Stolen sign URL → attacker broadcasts a different signed tx | `/sign/broadcast` verifies the signed tx's fee-payer equals the stashed wallet + signature present, AND (with `PREFLIGHT_ENFORCE=true`, the default) re-simulates the signed tx server-side: it **blocks gross balance-delta divergence** from the reviewed deal, **refuses to broadcast when the stash lacks a verification recipe** (fail-closed), **blocks txs that fail simulation outright** (they'd fail on-chain anyway), and **bounds native-SOL spend at 0.05 SOL**. It fails open ONLY on genuine infra ambiguity (derive/decode failure). Phantom's own prompt is a second backstop. | `src/server/index.ts` `/sign/broadcast` |
 | Sign-id leaks → attacker mills `/sign/rebuild` for free Jupiter quotes | Per-id rebuild cap (`REBUILD_CAP_PER_ID = 20`). 429 after exhaustion. | `src/sol/sign-store.ts:reserveRebuild` |
 | Sign-id leaks → attacker tries double-broadcast | Per-id mutex (`withBroadcastLock`) — second submission gets `BroadcastLockError`. Signature recorded inside lock. | `src/sol/sign-store.ts:withBroadcastLock` |
 | Phishing sign-page on attacker domain | `web/src/sign-main.ts` host allowlist; refuses to render outside `autoyield.org` / `www.autoyield.org`. `?api=` override is localhost-only. | `web/src/sign-main.ts:checkOriginOrAbort` |
@@ -118,11 +118,15 @@ parties claim; we compose their guarantees.
   mainnet txs in both directions (SPL↔SPL and Token-2022 xStock) with exact
   delta math. So there are now TWO independent WYSIWYS backstops: (1) Phantom's
   own signing prompt (simulates + shows true token deltas), and (2) autoyield's
-  server-side preflight. The check fails OPEN on derive/sim ambiguity (never
-  blocks a legit tx on infra error) and uses loose bounds so normal slippage
-  passes — it only catches gross divergence (output redirected, wrong mint,
-  massive over-spend). It still does not do byte-exact instruction equivalence;
-  the delta-bounds approach is the pragmatic equivalent.
+  server-side preflight. The preflight blocks gross delta divergence (output
+  redirected, wrong mint, massive over-spend); refuses to broadcast when the
+  stash lacks a verification recipe (fail-closed); blocks txs that fail
+  simulation outright (they'd fail on-chain anyway); and bounds native-SOL
+  spend at 0.05 SOL. It fails OPEN only on genuine infra ambiguity (derive/
+  decode failure — never blocks a legit tx on our own infra error) and uses
+  loose bounds so normal slippage passes. It still does not do byte-exact
+  instruction equivalence; the delta-bounds approach is the pragmatic
+  equivalent.
 - **Backend operator compromise**: an attacker with control of the
   autoyield-api.fly.dev backend can return a different unsigned tx than the
   AI requested, and make the sign-page card display innocent amounts. They
@@ -131,7 +135,7 @@ parties claim; we compose their guarantees.
   the real (malicious) token movements in Phantom regardless of what the
   card claims. Detection therefore relies on the user reading the Phantom
   prompt. Mitigations: open-source build, no signing key in the backend, and
-  the planned pre-broadcast simulation check above.
+  the enforcing pre-broadcast simulation check above.
 
 ---
 
@@ -147,6 +151,7 @@ parties claim; we compose their guarantees.
 | 2026-05-24 | Three-agent asset-safety audit | tx-path / sign-page / read-tools (post differentiation+stickiness build) | 0 critical. Fixed: honest `/sign/broadcast` claim, rebuild price floor, external-feed range validation (±50% premium / <$1M price / byte caps), suggest_rebalance explicit execute units |
 | 2026-05-24 | #1 WYSIWYS hardening | pre-broadcast simulation backstop | `/sign/broadcast` now simulates every signed tx + blocks gross divergence (output redirected/wrong-mint/over-spend); validated on real SPL + Token-2022 mainnet txs; `PREFLIGHT_ENFORCE` enforcing |
 | 2026-05-25 | Ops/robustness hardening (O1/O2/O3/Y1/Y2/N1/N2/G3) | error handling, defaults, deps, CSV export | Global unhandledRejection/uncaughtException handlers (flush audit+Sentry, exit on uncaught); preflight secure-by-default (`!== "false"`); npm audit fix (non-breaking; 4 moderate uuid transitive remain — not reachable, the only "fix" downgrades web3.js to 0.0.3); quote_tokenized_stock input validation; sign-store TTL-on-read; /healthz rate limit + slot cache; audit flushAuditSync on crash; CSV formula-injection escaping (`csvText`) |
+| 2026-06-10 | Three-agent fresh global audit | asset-safety / new-code / docs-consistency | No critical or high fund-loss findings. Hardened: sim-error fail-closed (txs that fail simulation are blocked — they'd fail on-chain anyway) + native-SOL drain bound (0.05 SOL); fixed snapshot DST labeling; shipped stdio entry for npx installs |
 
 **No external paid audit has been performed.** This is a deliberate
 trade-off: we operate no custom Solana programs, no smart contracts, no
@@ -164,10 +169,10 @@ real customer needs it.
 
 | Metric | Value | As of |
 |---|---|---|
-| Mainnet transactions through `/sign/broadcast` | 14 | 2026-05-28 |
+| Mainnet transactions through `/sign/broadcast` | 14 | 2026-06-10 |
 | Distinct test wallets | 3 (self + 2 external testers) | 2026-05-11 |
 | Funds lost / stuck | 0 | 2026-05-11 |
-| Test coverage | 58 vitest tests, all green | 2026-05-28 |
+| Test coverage | 68 vitest tests across 10 files, all green | 2026-06-10 |
 | RPC primary | Helius mainnet | 2026-05-11 |
 
 All on-chain proof is public:
@@ -276,6 +281,21 @@ for the full risk list.
 
 ## Document changelog
 
+- **2026-06-10** — Preflight hardened: simulation errors now fail CLOSED (a tx
+  that fails simulation is blocked — it would fail on-chain anyway); native-SOL
+  spend bounded at 0.05 SOL per tx; missing verification recipe in the stash
+  refuses broadcast (fail-closed). Timing signal baseline is now same-market-
+  regime aware (open/closed, America/New_York DST-correct). npm package ships
+  a real stdio entry so `npx -y @kaditang/agent-wallet-mcp` works. Base58
+  wallet validation on all tools.
+- **2026-06-02** — `compare_yields` field split: now returns `topExecutable`
+  (best actionable today) + `topByRiskAdjustedOverall` (global best, may be
+  read-only), with `topByRiskAdjusted` kept as a deprecated alias.
+- **2026-05-28** — `/healthz` made liveness-only (blocking on live RPC caused
+  Fly's 5s health-check timeout to restart the machine and drop MCP bridges);
+  per-RPC-call timeout (`RPC_CALL_TIMEOUT_MS`, default 8000ms); 10-fix
+  hardening batch including preflight fail-closed when the stash lacks a
+  verification recipe.
 - **2026-05-11** — Initial version. Reflects state at commit `cefecb2`.
 
 If you've reviewed this doc and have suggestions, open a Security

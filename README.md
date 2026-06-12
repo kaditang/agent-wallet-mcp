@@ -10,7 +10,7 @@
 Connect this MCP server to **Claude**, **Cursor**, **Claude Code**, or any MCP-compatible client. Your AI can then:
 
 - Compare USDC lending yields across Solana, Ethereum, Base, Arbitrum (read-only data).
-- Quote and build transactions to buy Backed xStocks (NVDAx, AAPLx, TSLAx, SPYx) on Solana.
+- Quote and build transactions to buy Backed xStocks (16 tickers — NVDAx, TSLAx, SPYx, QQQx, COINx, …) on Solana.
 - Snapshot any wallet's portfolio (SOL, USDC, held xStocks valued live via Jupiter).
 - Track transaction confirmations.
 
@@ -39,7 +39,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (Claude
 }
 ```
 
-> The npm package is **published** as [`@kaditang/agent-wallet-mcp`](https://www.npmjs.com/package/@kaditang/agent-wallet-mcp) (and listed in the official MCP Registry) — the config above runs it directly via `npx`, no clone needed.
+> The npm package is **published** as [`@kaditang/agent-wallet-mcp`](https://www.npmjs.com/package/@kaditang/agent-wallet-mcp) (and listed in the official MCP Registry) — the config above runs it directly via `npx`, no clone needed. Requires `@kaditang/agent-wallet-mcp` ≥ 0.2.1 (stdio entry).
 >
 > To run from source instead (for development), clone this repo and run:
 > ```bash
@@ -81,7 +81,7 @@ SENTRY_RELEASE=<git-sha>            # optional, for release tracking
 | `compare_yields` | Rank USDC lending + tokenized-treasury yields across chains, **risk-adjusted** (volatility / TVL / protocol / stability / reward-dependence), not headline APY. Solana protocols tagged `executable: true`. | No |
 | `list_yield_tokens` | List supported tokenized treasuries (USDY by Ondo). | No |
 | `list_xstocks` | List supported tokenized US equities (Backed xStocks). | No |
-| `quote_tokenized_stock` | Live Jupiter quote for USDC → xStock + a **best-entry-timing** signal (premium vs the underlying stock). | No |
+| `quote_tokenized_stock` | Live Jupiter quote for USDC → xStock + a **best-entry-timing** signal (premium vs the underlying stock, compared against a same-market-regime baseline — US market open vs closed). | No |
 | `get_portfolio` | Snapshot a wallet: SOL, USDC, xStocks + yield tokens valued via Jupiter. | No |
 | `portfolio_health` | "Should I do anything?" — holdings vs best risk-adjusted yield + per-xStock timing + actionable notes. | No |
 | `suggest_rebalance` | Given a target allocation, compute the buy/sell trades to reach it. Read-only; user executes. | No |
