@@ -26,7 +26,7 @@ async function main() {
   ])
 
   const server = new Server(
-    { name: "agent-wallet", version: "0.2.3" },
+    { name: "agent-wallet", version: "0.3.0" },
     { capabilities: { tools: {} } },
   )
   server.setRequestHandler(types.ListToolsRequestSchema, async () => ({

@@ -1,15 +1,22 @@
 {
   "$schema": "https://schemas.mcpservers.org/manifest.v1.json",
   "name": "agent-wallet",
-  "displayName": "Agent Wallet — Non-custodial RWA service for AI",
-  "version": "0.2.3",
-  "description": "Connect this MCP and your AI can compare on-chain yields, quote tokenized US equities, and build ready-to-sign Solana transactions for buying / selling Backed xStocks (16 tickers — NVDAx, TSLAx, SPYx, QQQx, COINx, …) or depositing into Ondo USDY tokenized treasuries. Funds stay in your existing Phantom wallet — we never sign or custody.",
+  "displayName": "Agent Wallet \u2014 Non-custodial RWA service for AI",
+  "version": "0.3.0",
+  "description": "Connect this MCP and your AI can compare on-chain yields, quote tokenized US equities, and build ready-to-sign Solana transactions for buying / selling Backed xStocks (16 tickers \u2014 NVDAx, TSLAx, SPYx, QQQx, COINx, \u2026) or depositing into Ondo USDY tokenized treasuries. Funds stay in your existing Phantom wallet \u2014 we never sign or custody.",
   "tagline": "Your AI's RWA + yield analyst on Solana. Non-custodial.",
   "homepage": "https://autoyield.org",
   "repository": "https://github.com/kaditang/agent-wallet-mcp",
   "license": "MIT",
   "author": "kadi",
-  "categories": ["finance", "defi", "rwa", "solana", "stocks", "yield"],
+  "categories": [
+    "finance",
+    "defi",
+    "rwa",
+    "solana",
+    "stocks",
+    "yield"
+  ],
   "keywords": [
     "solana",
     "rwa",
@@ -24,15 +31,23 @@
     "jupiter"
   ],
   "icon": "https://autoyield.org/og.png",
-  "transports": ["stdio", "http"],
+  "transports": [
+    "stdio",
+    "http"
+  ],
   "install": {
     "stdio": {
       "command": "npx",
-      "args": ["-y", "@kaditang/agent-wallet-mcp"]
+      "args": [
+        "-y",
+        "@kaditang/agent-wallet-mcp"
+      ]
     },
     "http": {
       "url": "https://autoyield-api.fly.dev/mcp",
-      "headers": { "Authorization": "Bearer YOUR_TOKEN" }
+      "headers": {
+        "Authorization": "Bearer YOUR_TOKEN"
+      }
     }
   },
   "tools": [
@@ -40,13 +55,22 @@
       "name": "compare_yields",
       "summary": "Rank USDC lending + tokenized-treasury yields across chains, RISK-ADJUSTED (not headline APY). Returns topExecutable (best you can act on today) and topByRiskAdjustedOverall (global best, may be read-only in V1)."
     },
-    { "name": "list_yield_tokens", "summary": "List supported tokenized treasuries (USDY)." },
-    { "name": "list_xstocks", "summary": "List supported tokenized US equities." },
+    {
+      "name": "list_yield_tokens",
+      "summary": "List supported tokenized treasuries (USDY)."
+    },
+    {
+      "name": "list_xstocks",
+      "summary": "List supported tokenized US equities."
+    },
     {
       "name": "quote_tokenized_stock",
-      "summary": "Live Jupiter quote for USDC → xStock, with a best-entry-timing signal (premium vs underlying)."
+      "summary": "Live Jupiter quote for USDC \u2192 xStock, with a best-entry-timing signal (premium vs underlying)."
     },
-    { "name": "get_portfolio", "summary": "Wallet snapshot (SOL / USDC / xStocks / yield tokens valued)." },
+    {
+      "name": "get_portfolio",
+      "summary": "Wallet snapshot (SOL / USDC / xStocks / yield tokens valued)."
+    },
     {
       "name": "portfolio_health",
       "summary": "Should-I-do-anything check: holdings vs best risk-adjusted yield + per-xStock timing signal + actionable notes."
@@ -57,34 +81,39 @@
     },
     {
       "name": "export_history",
-      "summary": "Export a wallet's tokenized-equity/yield trade history (date/action/asset/price/CSV) — a record for the accountant, not tax advice."
+      "summary": "Export a wallet's tokenized-equity/yield trade history (date/action/asset/price/CSV) \u2014 a record for the accountant, not tax advice."
     },
-    { "name": "track_tx", "summary": "On-chain confirmation status for a Solana signature." },
+    {
+      "name": "track_tx",
+      "summary": "On-chain confirmation status for a Solana signature."
+    },
     {
       "name": "build_deposit_yield_tx",
-      "summary": "Construct unsigned USDC → USDY tx + sign URL."
+      "summary": "Construct unsigned USDC \u2192 USDY tx + sign URL."
     },
     {
       "name": "build_withdraw_yield_tx",
-      "summary": "Construct unsigned USDY → USDC tx + sign URL."
+      "summary": "Construct unsigned USDY \u2192 USDC tx + sign URL."
     },
     {
       "name": "build_buy_xstock_tx",
-      "summary": "Construct unsigned USDC → xStock tx + sign URL."
+      "summary": "Construct unsigned USDC \u2192 xStock tx + sign URL."
     },
     {
       "name": "build_sell_xstock_tx",
-      "summary": "Construct unsigned xStock → USDC tx + sign URL."
+      "summary": "Construct unsigned xStock \u2192 USDC tx + sign URL."
     }
   ],
   "permissions": {
     "custody": "none",
     "signing": "user-only",
     "kyc": "issuer-side-only",
-    "network": ["mainnet"]
+    "network": [
+      "mainnet"
+    ]
   },
   "compliance": {
-    "stablecoinIssuerInterest": "We never custody or issue. The yield path uses Ondo USDY (a registered security under non-US prospectus), not stablecoin issuer interest — unaffected by GENIUS / CLARITY Act restrictions.",
+    "stablecoinIssuerInterest": "We never custody or issue. The yield path uses Ondo USDY (a registered security under non-US prospectus), not stablecoin issuer interest \u2014 unaffected by GENIUS / CLARITY Act restrictions.",
     "usPersons": "Restricted by issuers (Backed, Ondo). We do not onboard users; users connect their existing wallet."
   }
 }

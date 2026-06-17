@@ -81,6 +81,7 @@ SENTRY_RELEASE=<git-sha>            # optional, for release tracking
 | `compare_yields` | Rank USDC lending + tokenized-treasury yields across chains, **risk-adjusted** (volatility / TVL / protocol / stability / reward-dependence), not headline APY. Solana protocols tagged `executable: true`. | No |
 | `list_yield_tokens` | List supported tokenized treasuries (USDY by Ondo). | No |
 | `list_xstocks` | List supported tokenized US equities (Backed xStocks). | No |
+| `check_xstock_safety` | **Pre-trade safety check** for a tokenized US stock (any issuer / mint / EVM address): is it the **real** token (not a copycat) and OK to buy now — verified vs the issuer's own registry, plus depeg / liquidity / market-hours / trading-halt. Catches impersonator tokens (the #1 risk). Free, read-only. Auto-run before `build_buy_xstock_tx`. | No |
 | `quote_tokenized_stock` | Live Jupiter quote for USDC → xStock + a **best-entry-timing** signal (premium vs the underlying stock, compared against a same-market-regime baseline — US market open vs closed). | No |
 | `get_portfolio` | Snapshot a wallet: SOL, USDC, xStocks + yield tokens valued via Jupiter. | No |
 | `portfolio_health` | "Should I do anything?" — holdings vs best risk-adjusted yield + per-xStock timing + actionable notes. | No |

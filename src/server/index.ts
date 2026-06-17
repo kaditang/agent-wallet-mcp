@@ -774,7 +774,7 @@ app.get("/sol/balances", readLimiter, async (req, res) => {
 app.post("/mcp", buildLimiter, requireAuth, async (req, res) => {
   try {
     const server = new Server(
-      { name: "agent-wallet", version: "0.2.3" },
+      { name: "agent-wallet", version: "0.3.0" },
       { capabilities: { tools: {} } },
     )
     server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: getToolList() as any }))

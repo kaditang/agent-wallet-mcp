@@ -27,6 +27,41 @@ function text(s: string, isError = false) {
   return { content: [{ type: "text" as const, text: s }], isError }
 }
 
+// Pre-trade safety gate — calls StockWaves' FREE tokenized-equity health preview to
+// check a token is the REAL one (not a copycat) and tradeable right now (peg / liquidity
+// / market-hours). READ-ONLY HTTP GET, no signing, no cost — fits the non-custodial model.
+const XSTOCK_GATE_BASE = process.env.XSTOCK_GATE_URL ?? "https://stockwaves.net"
+type XstockSafety = {
+  ok: boolean
+  decision?: "ok" | "review" | "avoid"
+  verified?: boolean
+  issuer?: string
+  reason?: string
+  error?: string
+}
+async function checkXstockSafety(params: { symbol?: string; address?: string }): Promise<XstockSafety> {
+  try {
+    const q = params.address ? `address=${encodeURIComponent(params.address)}` : `symbol=${encodeURIComponent(params.symbol || "")}`
+    const r = await fetch(`${XSTOCK_GATE_BASE}/api/xstock/health/preview?${q}`, {
+      signal: AbortSignal.timeout(15000),
+      headers: { "User-Agent": "agent-wallet-mcp" },
+    })
+    const d = (await r.json()) as Record<string, unknown>
+    if (!r.ok || d.error) return { ok: false, error: String(d.error || `gate ${r.status}`) }
+    const auth = (d.authenticity ?? {}) as Record<string, unknown>
+    const tok = (d.token ?? {}) as Record<string, unknown>
+    return {
+      ok: true,
+      decision: d.decision as XstockSafety["decision"],
+      verified: auth.verified as boolean,
+      issuer: tok.issuer as string,
+      reason: d.recommendation as string,
+    }
+  } catch (e) {
+    return { ok: false, error: (e as Error).message }
+  }
+}
+
 const TOOLS = [
   // ---------------- READ tools (no signing, public data) ----------------
   {
@@ -150,6 +185,18 @@ const TOOLS = [
         },
       },
       required: ["wallet"],
+    },
+  },
+  {
+    name: "check_xstock_safety",
+    description:
+      "Pre-trade SAFETY check for a tokenized US stock — verify it's the REAL token (not a copycat) and OK to buy right now, BEFORE building a buy tx. Works for any issuer (Backed/xStocks, Ondo, Remora) and any Solana mint or EVM address. Pass `ticker` (e.g. NVDA → checks the canonical xStock) OR `token` (a symbol like AAPLx / AAPLon, or a raw mint/0x address) → returns decision (ok/review/avoid), issuer + whether it's verified against the issuer's own registry, and why. Catches copycats/fakes (the #1 risk — agents buy impersonator tokens), depeg, thin liquidity, off-hours mispricing, trading halts. FREE, read-only. STRONGLY recommended before build_buy_xstock_tx, and essential before buying any token NOT in list_xstocks.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        ticker: { type: "string", description: "US ticker (e.g. NVDA, AAPL) — checks the canonical Backed xStock for it" },
+        token: { type: "string", description: "OR a specific token: a symbol (AAPLx/AAPLon/TSLAr) or a raw Solana mint / 0x EVM address" },
+      },
     },
   },
   {
@@ -666,6 +713,23 @@ export async function dispatch(
     })
   }
 
+  if (name === "check_xstock_safety") {
+    const { ticker, token } = z
+      .object({ ticker: z.string().min(1).max(8).optional(), token: z.string().min(1).max(64).optional() })
+      .parse(args)
+    if (!ticker && !token) return text(JSON.stringify({ ok: false, reason: "pass `ticker` (e.g. NVDA) or `token` (symbol or mint/0x address)" }), true)
+    let params: { symbol?: string; address?: string }
+    if (token) {
+      const isAddr = /^0x[0-9a-fA-F]{40}$/.test(token) || /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(token)
+      params = isAddr ? { address: token } : { symbol: token }
+    } else {
+      const stock = findXStock(ticker!) // canonical Backed mint when known → most reliable
+      params = stock ? { address: stock.mint } : { symbol: `${ticker!.toUpperCase()}x` }
+    }
+    const safety = await checkXstockSafety(params)
+    return text(JSON.stringify(safety), !safety.ok)
+  }
+
   if (name === "build_buy_xstock_tx") {
     const { wallet, ticker, amountUsdc, slippageBps } = z
       .object({
@@ -678,6 +742,13 @@ export async function dispatch(
     const stock = findXStock(ticker)
     if (!stock) {
       return text(JSON.stringify({ ok: false, reason: `${ticker} not in xStocks registry` }), true)
+    }
+    // Pre-trade safety gate: refuse to build a buy when the gate says AVOID (e.g. the
+    // token is wildly depegged vs a live reference, or — for non-canonical paths — a
+    // copycat). "review" (off-hours / thin liquidity) is surfaced but not blocking.
+    const safety = await checkXstockSafety({ address: stock.mint })
+    if (safety.ok && safety.decision === "avoid") {
+      return text(JSON.stringify({ ok: false, reason: `safety gate blocked the buy: ${safety.reason}`, safety }), true)
     }
     return buildSwapAndStash({
       wallet,
