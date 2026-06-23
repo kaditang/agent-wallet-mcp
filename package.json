@@ -1,9 +1,9 @@
 {
   "name": "@kaditang/agent-wallet-mcp",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "mcpName": "io.github.kaditang/agent-wallet-mcp",
   "type": "module",
-  "description": "Non-custodial RWA + yield service for AI agents on Solana. Compare yields, quote/buy/sell tokenized US equities (Backed xStocks) and tokenized treasuries (Ondo USDY). User signs in their own wallet \u2014 we never sign.",
+  "description": "Non-custodial RWA + yield service for AI agents on Solana. Compare yields, quote/buy/sell tokenized US equities (Backed xStocks) and tokenized treasuries (Ondo USDY). User signs in their own wallet — we never sign.",
   "keywords": [
     "mcp",
     "model-context-protocol",

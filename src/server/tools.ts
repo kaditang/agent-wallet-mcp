@@ -750,6 +750,13 @@ export async function dispatch(
     if (safety.ok && safety.decision === "avoid") {
       return text(JSON.stringify({ ok: false, reason: `safety gate blocked the buy: ${safety.reason}`, safety }), true)
     }
+    // Fail-OPEN: if the gate is unreachable/errored (safety.ok === false) the buy still
+    // proceeds (the gate is advisory, and stock.mint is pinned from our local registry so a
+    // copycat can't be substituted here). But the skip MUST be visible — surface it on the
+    // tx so the agent/user knows the depeg/halt check did NOT run.
+    const safetyGate = safety.ok
+      ? { checked: true, decision: safety.decision }
+      : { checked: false, reason: `safety gate unreachable — depeg/market checks NOT run (${safety.reason ?? "error"})` }
     return buildSwapAndStash({
       wallet,
       userId: ctx?.userId,
@@ -763,7 +770,7 @@ export async function dispatch(
       slippageBps,
       kind: "buy_xstock",
       ticker,
-      labelExtra: { issuer: "Backed (xStocks)" },
+      labelExtra: { issuer: "Backed (xStocks)", safetyGate },
     })
   }
 
