@@ -413,6 +413,8 @@ app.get("/sign/tx/:id", readLimiter, (req, res) => {
     expectedOut: tx.expectedOut,
     inputAmount: tx.inputAmount,
     inputSymbol: tx.inputSymbol,
+    shareMultiplier: tx.shareMultiplier,
+    shareSide: tx.shareSide,
     valueUsdEstimate: tx.valueUsdEstimate,
     protocol: tx.protocol,
     unsignedTxBase64: tx.unsignedTxBase64,

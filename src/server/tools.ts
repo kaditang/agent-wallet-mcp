@@ -15,6 +15,7 @@ import { getRawTokenBalance } from "../sol/balances.js"
 import { YIELD_TOKENS, findYieldToken } from "../sol/yield-tokens.js"
 import { withRpcFallback } from "../sol/connection.js"
 import { getTimingSignalForXStock } from "../sol/timing-signal.js"
+import { getShareMultiplier, rawToShares, sharesToRaw, type ShareMultiplier } from "../sol/share-multiplier.js"
 import { computeRebalance, type RebalanceTarget } from "../sol/rebalance.js"
 import { fetchTradeHistory, toCsv } from "../sol/history.js"
 
@@ -250,7 +251,7 @@ const TOOLS = [
       properties: {
         wallet: { type: "string", description: "User's Solana wallet pubkey" },
         ticker: { type: "string", description: "Stock ticker to sell, e.g. NVDA" },
-        amountShares: { type: "string", description: "Number of xStock shares to sell, e.g. '0.02' — or 'max' to sell the entire balance (reads exact on-chain amount; avoids the rounding error that breaks selling the displayed balance)" },
+        amountShares: { type: "string", description: "Number of xStock SHARES to sell — the unit get_portfolio and wallets display (includes reinvested dividends), e.g. '0.02'. Converted to on-chain token units internally. Or 'max' to sell the entire balance exactly." },
         slippageBps: { type: "number", description: "Slippage in bps (default 50)" },
       },
       required: ["wallet", "ticker", "amountShares"],
@@ -377,14 +378,23 @@ export async function dispatch(
       slippageBps,
     })
     const inUsdc = Number(q.inAmount) / 1e6
-    const outShares = Number(q.outAmount) / 10 ** stock.decimals
-    const minOutShares = Number(q.otherAmountThreshold) / 10 ** stock.decimals
+    // Jupiter's outAmount is RAW tokens; one raw token = `multiplier` SHARES
+    // (reinvested dividends, see share-multiplier.ts). These used to be reported
+    // as shares directly, so a dividend payer's per-share price read high by its
+    // multiplier — and that inflated price fed the timing signal below.
+    const mult: ShareMultiplier = await getShareMultiplier(stock.mint)
+    const outRaw = Number(q.outAmount) / 10 ** stock.decimals
+    const outShares = rawToShares(outRaw, mult.value)
+    const minOutShares = rawToShares(Number(q.otherAmountThreshold) / 10 ** stock.decimals, mult.value)
     const impliedPrice = outShares > 0 ? inUsdc / outShares : 0
 
     // Entry-timing signal: compare the live xStock premium vs underlying to
     // its own recent history. Best-effort — never block the quote on it.
     const timing =
-      impliedPrice > 0
+      // Unreadable multiplier → impliedPrice is per RAW token for a dividend
+      // payer, which against the per-share history is exactly the false
+      // "unusually HIGH" (SPYx z=+6.7) this fix removes. Skip rather than lie.
+      impliedPrice > 0 && mult.status !== "unavailable"
         ? await getTimingSignalForXStock(ticker, impliedPrice).catch(() => null)
         : null
 
@@ -399,8 +409,11 @@ export async function dispatch(
           issuer: "Backed (xStocks)",
           quote: {
             inUsdc,
-            expectedOut: outShares,
+            expectedOut: outShares, // SHARES (what get_portfolio will show)
             minOut: minOutShares,
+            expectedOutRawTokens: outRaw, // on-chain token units the swap moves
+            shareMultiplier: mult.status === "unavailable" ? null : mult.value,
+            shareMultiplierStatus: mult.status, // applied | none_on_mint | unavailable
             impliedPricePerShareUsdc: impliedPrice,
             priceImpactPct: q.priceImpactPct,
             routes: q.routePlan.map((r) => ({ amm: r.swapInfo.label, percent: r.percent })),
@@ -769,6 +782,7 @@ export async function dispatch(
       amountInHuman: amountUsdc,
       slippageBps,
       kind: "buy_xstock",
+      shareInfo: { side: "output", mult: await getShareMultiplier(stock.mint) },
       ticker,
       labelExtra: { issuer: "Backed (xStocks)", safetyGate },
     })
@@ -787,8 +801,9 @@ export async function dispatch(
     if (!stock) {
       return text(JSON.stringify({ ok: false, reason: `${ticker} not in xStocks registry` }), true)
     }
-    // "max" → sell the exact on-chain balance (avoids the float-overshoot
-    // InsufficientFunds that biting selling the displayed UI amount).
+    // "max" → sell the exact on-chain RAW balance. Selling the displayed UI
+    // amount instead overshoots: for dividend payers mostly because the UI
+    // amount is in SHARES (raw × multiplier, ~0.6%), not only float rounding.
     let amountAtomicOverride: bigint | undefined
     if (amountShares.trim().toLowerCase() === "max") {
       const bal = await getRawTokenBalance(wallet, stock.mint)
@@ -796,6 +811,41 @@ export async function dispatch(
         return text(JSON.stringify({ ok: false, reason: `no ${stock.symbol} balance to sell` }), true)
       }
       amountAtomicOverride = bal.atomic
+    }
+    // A numeric amount is SHARES — the unit get_portfolio / wallets display.
+    // Jupiter sells RAW tokens (shares / multiplier). Treating shares as raw
+    // oversold a dividend payer by its multiplier, and selling the displayed
+    // balance asked for 0.57% (SPYx) MORE raw tokens than the wallet holds —
+    // an InsufficientFunds failure that the "max" note below misattributed to
+    // float rounding.
+    let sellMult: ShareMultiplier | undefined
+    const sharesNum = Number(amountShares)
+    if (amountAtomicOverride == null && Number.isFinite(sharesNum) && sharesNum > 0) {
+      sellMult = await getShareMultiplier(stock.mint)
+      let want = BigInt(Math.floor(sharesToRaw(sharesNum, sellMult.value) * 10 ** stock.decimals))
+      const bal = await getRawTokenBalance(wallet, stock.mint).catch(() => null)
+      // floor() of a displayed share balance can land 1-2 atomic units UNDER
+      // the raw balance, leaving undeletable dust. That's rounding, not intent.
+      if (bal && want < bal.atomic && bal.atomic - want <= 2n) want = bal.atomic
+      if (bal && want > bal.atomic) {
+        // Within 1bp of the whole balance = "sell what's shown" (display
+        // rounding) → sell exactly the balance. More than that is a real
+        // over-request: refuse with the true share balance rather than build a
+        // tx that fails on-chain.
+        const heldShares = rawToShares(Number(bal.atomic) / 10 ** bal.decimals, sellMult.value)
+        if (bal.atomic > 0n && Number(want - bal.atomic) <= Number(bal.atomic) * 1e-4) {
+          want = bal.atomic
+        } else {
+          return text(
+            JSON.stringify({
+              ok: false,
+              reason: `requested ${sharesNum} ${stock.symbol} shares but the wallet holds ${heldShares} — pass "max" to sell everything`,
+            }),
+            true,
+          )
+        }
+      }
+      amountAtomicOverride = want
     }
     return buildSwapAndStash({
       wallet,
@@ -810,6 +860,7 @@ export async function dispatch(
       amountAtomicOverride,
       slippageBps,
       kind: "sell_xstock",
+      shareInfo: { side: "input", mult: sellMult ?? (await getShareMultiplier(stock.mint)) },
       ticker,
       symbol: stock.symbol,
       labelExtra: { issuer: "Backed (xStocks)" },
@@ -918,6 +969,10 @@ async function buildSwapAndStash(opts: {
   amountAtomicOverride?: bigint
   slippageBps?: number
   kind: "deposit_yield" | "withdraw_yield" | "buy_xstock" | "sell_xstock"
+  /** xStock leg's share multiplier. Display-only: the stash, rebuild recipe and
+   *  preflight all stay in RAW token units (they compare against on-chain raw
+   *  amounts and must not change). This only adds SHARE figures to the reply. */
+  shareInfo?: { side: "input" | "output"; mult: ShareMultiplier }
   ticker?: string
   symbol?: string
   protocol?: string
@@ -1018,6 +1073,9 @@ async function buildSwapAndStash(opts: {
     minOut, // worst-case the user accepts now; rebuild floor enforces it
     inputAmount: inHuman,
     inputSymbol: opts.inputSymbol,
+    ...(opts.shareInfo && opts.shareInfo.mult.status === "applied"
+      ? { shareMultiplier: opts.shareInfo.mult.value, shareSide: opts.shareInfo.side }
+      : {}),
     valueUsdEstimate,
     protocol: opts.protocol,
     unsignedTxBase64: tx.swapTransactionBase64,
@@ -1079,6 +1137,24 @@ async function buildSwapAndStash(opts: {
           outputMint: opts.outputMint,
           outputSymbol: opts.outputSymbol,
           impliedPricePerOutputUnit: impliedPrice,
+          ...(opts.shareInfo
+            ? opts.shareInfo.side === "output"
+              ? {
+                  // expectedOut/minOut above are RAW token units; this is what the
+                  // wallet will display (shares incl. reinvested dividends).
+                  expectedOutShares: rawToShares(expectedOut, opts.shareInfo.mult.value),
+                  minOutShares: rawToShares(minOut, opts.shareInfo.mult.value),
+                  impliedPricePerShareUsdc:
+                    expectedOut > 0 ? inHuman / rawToShares(expectedOut, opts.shareInfo.mult.value) : 0,
+                  shareMultiplier: opts.shareInfo.mult.status === "unavailable" ? null : opts.shareInfo.mult.value,
+                  shareMultiplierStatus: opts.shareInfo.mult.status,
+                }
+              : {
+                  inShares: rawToShares(inHuman, opts.shareInfo.mult.value),
+                  shareMultiplier: opts.shareInfo.mult.status === "unavailable" ? null : opts.shareInfo.mult.value,
+                  shareMultiplierStatus: opts.shareInfo.mult.status,
+                }
+            : {}),
           priceImpactPct: quote.priceImpactPct,
           routes: quote.routePlan.map((r) => ({
             amm: r.swapInfo.label,

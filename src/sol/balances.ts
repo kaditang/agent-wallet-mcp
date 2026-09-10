@@ -25,10 +25,12 @@ export type BalancesReport = {
 
 /**
  * Exact raw (atomic) balance of one mint for an owner, summed across their
- * token accounts. Used by "sell max" — selling the displayed UI amount can
- * overshoot the true balance by ~1 atomic unit (float `human * 10**dec`
- * rounding), tripping Jupiter InsufficientFunds (0x1788). The raw atomic
- * amount is exact, so selling it never overshoots.
+ * token accounts. Used by "sell max" — selling the displayed UI amount
+ * overshoots the true balance, tripping Jupiter InsufficientFunds (0x1788).
+ * Originally attributed to ~1 atomic unit of float rounding; for a dividend-
+ * paying xStock the real overshoot is the share multiplier (~0.6%), because
+ * `uiAmountString` is in SHARES (raw × multiplier) — see share-multiplier.ts.
+ * The raw atomic amount is exact, so selling it never overshoots.
  */
 export async function getRawTokenBalance(
   addressBase58: string,

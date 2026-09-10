@@ -543,7 +543,7 @@ function renderCardInto(target: HTMLElement, tx: any): void {
   // the input-fields fix.
   if (tx.inputAmount != null && typeof tx.inputSymbol === "string") {
     target.appendChild(
-      rowEl(t("label.spending"), `${formatAmount(tx.inputAmount)} ${tx.inputSymbol}`, true),
+      rowEl(t("label.spending"), `${formatAmount(toShares(tx.inputAmount, tx, "input"))} ${tx.inputSymbol}`, true),
     )
   } else if (typeof tx.amountUsdc === "number") {
     target.appendChild(rowEl(t("label.spending"), `${formatAmount(tx.amountUsdc)} USDC`, true))
@@ -557,13 +557,26 @@ function renderCardInto(target: HTMLElement, tx: any): void {
     const receiveSymbol = isReceiveUsdc ? "USDC" : tx.symbol
     if (typeof receiveSymbol === "string") {
       target.appendChild(
-        rowEl(t("label.receive"), `${formatAmount(tx.expectedOut)} ${receiveSymbol}`, true),
+        rowEl(t("label.receive"), `${formatAmount(toShares(tx.expectedOut, tx, "output"))} ${receiveSymbol}`, true),
       )
     }
   }
 
   target.appendChild(rowEl(t("label.wallet"), shortAddr(String(tx.wallet ?? ""), 6, 6)))
   target.appendChild(rowEl(t("label.network"), t("network")))
+}
+
+// Amounts from the server are RAW token units (what the tx actually moves).
+// For an xStock leg, one raw token = shareMultiplier shares (reinvested
+// dividends); the wallet and get_portfolio show SHARES, so show shares here
+// too — otherwise the user sees e.g. 182.78 SPYx on this page and 183.83 in
+// Phantom for the very same trade, at the moment they are deciding to sign.
+// Absent/insane multiplier → show raw unchanged (older stashed txs).
+function toShares(raw: number, tx: any, side: "input" | "output"): number {
+  const m = Number(tx?.shareMultiplier)
+  // Same band as share-multiplier.ts — wide enough for real stock splits.
+  if (tx?.shareSide !== side || !Number.isFinite(m) || m < 1e-3 || m > 1e3) return raw
+  return raw * m
 }
 
 function formatAmount(n: number): string {

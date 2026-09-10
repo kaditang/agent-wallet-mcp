@@ -1,5 +1,6 @@
 import { getBalances } from "./balances.js"
 import { jupiterQuote } from "./jupiter.js"
+import { getShareMultiplier, rawToShares, sharesToRaw, type ShareMultiplier } from "./share-multiplier.js"
 import { SOL_USDC, XSTOCKS } from "./tokens.js"
 import { YIELD_TOKENS } from "./yield-tokens.js"
 
@@ -10,6 +11,8 @@ export type PortfolioPosition = {
   amount: number
   pricePerShareUsdc?: number
   valueUsdc?: number
+  /** Shares per raw token (xStocks reinvested dividends). `amount` is already in shares. */
+  shareMultiplier?: number
   note?: string
 }
 
@@ -29,19 +32,25 @@ async function priceViaJupiter(
   mint: string,
   decimals: number,
   amount: number,
-): Promise<{ pricePerShareUsdc: number; valueUsdc: number } | { note: string }> {
+): Promise<{ pricePerShareUsdc: number; valueUsdc: number; shareMultiplier?: number; note?: string } | { note: string }> {
   if (amount <= 0) return { note: "zero balance" }
+  // `amount` comes from getParsedTokenAccountsByOwner uiAmountString, which is in
+  // SHARES (the RPC applies the Token-2022 scaled-UI multiplier). Jupiter quotes
+  // RAW tokens. Before this conversion the probe price was per RAW token and was
+  // then multiplied by a SHARE count — overstating a dividend payer's value by
+  // its multiplier (SPYx +0.57%). See share-multiplier.ts.
+  const mult: ShareMultiplier = await getShareMultiplier(mint)
   try {
     // Probe with 10% of holdings, capped to keep API spend small.
     const probeAtomic = BigInt(
-      Math.max(1, Math.floor(amount * 0.1 * 10 ** decimals)),
+      Math.max(1, Math.floor(sharesToRaw(amount * 0.1, mult.value) * 10 ** decimals)),
     )
     const quote = await jupiterQuote({
       inputMint: mint,
       outputMint: SOL_USDC,
       amountAtomic: probeAtomic,
     })
-    const probeShares = Number(probeAtomic) / 10 ** decimals
+    const probeShares = rawToShares(Number(probeAtomic) / 10 ** decimals, mult.value)
     const probeUsdc = Number(quote.outAmount) / 1_000_000
     const pricePerShareUsdc = probeShares > 0 ? probeUsdc / probeShares : 0
     // A sub-cent probe can quote outAmount "0" → pricePerShareUsdc 0. That is a
@@ -51,7 +60,16 @@ async function priceViaJupiter(
     if (quote.outAmount === "0" || pricePerShareUsdc <= 0) {
       return { note: "could not price (amount too small to quote)" }
     }
-    return { pricePerShareUsdc, valueUsdc: pricePerShareUsdc * amount }
+    return {
+      pricePerShareUsdc,
+      valueUsdc: pricePerShareUsdc * amount,
+      ...(mult.status === "applied" ? { shareMultiplier: mult.value } : {}),
+      // Say so when the multiplier could not be read — for a dividend payer the
+      // value is then per raw token and reads up to ~0.6% high.
+      ...(mult.status === "unavailable"
+        ? { note: "share multiplier unreadable this call — value may read up to ~0.6% high for a dividend-paying xStock" }
+        : {}),
+    }
   } catch (e) {
     // Strip any URL — a Jupiter/RPC error can embed an endpoint with ?api-key=…
     const msg = (e as Error).message.replace(/https?:\/\/[^\s"']+/gi, "[url]")

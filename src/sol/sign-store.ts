@@ -43,6 +43,13 @@ export type SignableTx = {
    *  to show "Spending X foo" regardless of direction. */
   inputAmount?: number
   inputSymbol?: string
+  /** DISPLAY ONLY. Shares per raw token on the xStock leg (reinvested
+   *  dividends). inputAmount / expectedOut / minOut stay in RAW token units —
+   *  preflight and the rebuild floor compare them against raw on-chain amounts
+   *  and must not change. The sign page multiplies the xStock leg by this so it
+   *  shows the SHARE count the user asked for and their wallet displays. */
+  shareMultiplier?: number
+  shareSide?: "input" | "output"
   /** USD value estimate of the trade (for high-value confirm gating). */
   valueUsdEstimate?: number
   protocol?: string
