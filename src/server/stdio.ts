@@ -18,15 +18,19 @@ console.log = (...args: unknown[]) => console.error(...args)
 process.env.MCP_LOCAL_STDIO = "1"
 
 async function main() {
-  const [{ Server }, { StdioServerTransport }, types, tools] = await Promise.all([
+  // Dynamic like everything else here (see the stdout note above), even though
+  // version.ts has no side effects — keeps the "nothing imports before the
+  // rebind" rule free of exceptions.
+  const [{ Server }, { StdioServerTransport }, types, tools, { SERVER_VERSION }] = await Promise.all([
     import("@modelcontextprotocol/sdk/server/index.js"),
     import("@modelcontextprotocol/sdk/server/stdio.js"),
     import("@modelcontextprotocol/sdk/types.js"),
     import("./tools.js"),
+    import("./version.js"),
   ])
 
   const server = new Server(
-    { name: "agent-wallet", version: "0.3.0" },
+    { name: "agent-wallet", version: SERVER_VERSION },
     { capabilities: { tools: {} } },
   )
   server.setRequestHandler(types.ListToolsRequestSchema, async () => ({

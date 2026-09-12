@@ -40,6 +40,7 @@ import {
 import { randomUUID } from "node:crypto"
 import { withRpcFallback } from "../sol/connection.js"
 import { VersionedTransaction } from "@solana/web3.js"
+import { SERVER_VERSION } from "./version.js"
 
 export const app = express()
 
@@ -776,7 +777,7 @@ app.get("/sol/balances", readLimiter, async (req, res) => {
 app.post("/mcp", buildLimiter, requireAuth, async (req, res) => {
   try {
     const server = new Server(
-      { name: "agent-wallet", version: "0.3.0" },
+      { name: "agent-wallet", version: SERVER_VERSION },
       { capabilities: { tools: {} } },
     )
     server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: getToolList() as any }))
