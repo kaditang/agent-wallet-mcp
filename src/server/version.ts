@@ -4,4 +4,4 @@
 // 0.3.2 releases. Not read from package.json at runtime because the stdio
 // entry is bundled to CJS (no import.meta.url); instead version.test.ts fails
 // the suite if this drifts from package.json — bump both when releasing.
-export const SERVER_VERSION = "0.3.2"
+export const SERVER_VERSION = "0.3.3"

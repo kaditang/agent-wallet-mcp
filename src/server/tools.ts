@@ -822,6 +822,20 @@ export async function dispatch(
     const sharesNum = Number(amountShares)
     if (amountAtomicOverride == null && Number.isFinite(sharesNum) && sharesNum > 0) {
       sellMult = await getShareMultiplier(stock.mint)
+      // Fail CLOSED when the multiplier can't be read: its fallback value is
+      // 1.0, which would treat shares as raw and sell a dividend payer ~0.6%
+      // MORE shares than asked (if the balance allows). On a money path an
+      // RPC blip must refuse, not silently oversell. "max" is unaffected — it
+      // sells the exact raw balance and needs no conversion.
+      if (sellMult.status === "unavailable") {
+        return text(
+          JSON.stringify({
+            ok: false,
+            reason: `could not read ${stock.symbol}'s share multiplier right now, so ${sharesNum} shares can't be converted to token units safely — retry in a moment, or pass "max" to sell the exact full balance`,
+          }),
+          true,
+        )
+      }
       let want = BigInt(Math.floor(sharesToRaw(sharesNum, sellMult.value) * 10 ** stock.decimals))
       const bal = await getRawTokenBalance(wallet, stock.mint).catch(() => null)
       // floor() of a displayed share balance can land 1-2 atomic units UNDER

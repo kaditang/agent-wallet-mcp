@@ -1,9 +1,40 @@
 import { describe, expect, it } from "vitest"
 import {
   computeTimingSignal,
+  parseSnapshotNdjson,
   premiumHistoryFor,
   usMarketRegime,
 } from "../../sol/timing-signal.js"
+
+describe("parseSnapshotNdjson (ranged tail + rolling window)", () => {
+  const NOW = Date.parse("2026-10-03T12:00:00Z")
+  const rec = (t: string) => JSON.stringify({ t, marketState: "open", entries: [] })
+  const recent = rec("2026-10-01T15:00:00Z")
+  const old = rec("2026-05-24T01:00:00Z") // > 90 days before NOW
+
+  it("drops a mid-record fragment as the first line of a ranged slice", () => {
+    const fragment = '"premiumPct":0.12}]}' // tail end of a record cut by the Range
+    const out = parseSnapshotNdjson(`${fragment}\n${recent}\n`, { startsMidRecord: true, nowMs: NOW })
+    expect(out).toHaveLength(1)
+    expect(out[0].t).toBe("2026-10-01T15:00:00Z")
+  })
+
+  it("keeps the first line when the body starts at byte 0", () => {
+    const out = parseSnapshotNdjson(`${recent}\n${recent}\n`, { startsMidRecord: false, nowMs: NOW })
+    expect(out).toHaveLength(2)
+  })
+
+  it("excludes records older than the rolling window", () => {
+    const out = parseSnapshotNdjson(`${old}\n${recent}\n`, { startsMidRecord: false, nowMs: NOW, windowDays: 90 })
+    expect(out.map((r) => r.t)).toEqual(["2026-10-01T15:00:00Z"])
+  })
+
+  it("skips malformed lines and records with unparseable timestamps", () => {
+    const bad = JSON.stringify({ t: "not-a-date", marketState: "open", entries: [] })
+    const out = parseSnapshotNdjson(`{garbage\n${bad}\n${recent}\n`, { startsMidRecord: false, nowMs: NOW })
+    expect(out).toHaveLength(1)
+  })
+})
 
 // A 14-sample baseline centered ~1.0% with small spread.
 const HISTORY = [0.9, 1.1, 1.0, 0.8, 1.2, 1.0, 0.95, 1.05, 1.1, 0.9, 1.0, 1.15, 0.85, 1.0]

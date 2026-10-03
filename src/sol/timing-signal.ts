@@ -26,8 +26,17 @@ const MIN_SAMPLES = 12
 // or poison the trailing baseline. Audit: external feeds are unauthenticated.
 const MAX_PREMIUM_ABS_PCT = 50
 // Cap the snapshot ndjson we'll buffer from GitHub raw (defends a hostile /
-// runaway response from exhausting memory). ~10MB ≈ years of hourly data.
+// runaway response from exhausting memory). Safety net only — normal reads are
+// ranged to TAIL_BYTES below, so the cap is never approached.
 const MAX_SNAPSHOT_BYTES = 10 * 1024 * 1024
+// Rolling baseline. The file grows ~0.8MB/month forever; reading all of it
+// would (a) hit the 10MB cap around mid-2027 and silently degrade every signal
+// to "insufficient-history", and (b) compare today's premium against months-old
+// microstructure. So: fetch only the tail (HTTP Range — raw.githubusercontent
+// serves 206) and keep the last BASELINE_WINDOW_DAYS. 3MB ≈ 110+ days at the
+// current ~2.6KB/record × ~10 records/day, comfortably covering the window.
+const TAIL_BYTES = 3 * 1024 * 1024
+export const BASELINE_WINDOW_DAYS = 90
 
 function premiumInRange(p: number | null | undefined): p is number {
   return typeof p === "number" && Number.isFinite(p) && Math.abs(p) <= MAX_PREMIUM_ABS_PCT
@@ -122,28 +131,55 @@ type SnapshotRecord = {
 
 let cache: { records: SnapshotRecord[]; fetchedAt: number } | null = null
 
+/**
+ * PURE: turn an ndjson body into baseline records. `startsMidRecord` is true
+ * when the body is a ranged slice that doesn't begin at byte 0 — its first
+ * line is then a fragment and is dropped (it would usually fail JSON.parse
+ * anyway, but never rely on a fragment being unparseable). Records older than
+ * the rolling window, or with an unparseable timestamp, are excluded.
+ */
+export function parseSnapshotNdjson(
+  text: string,
+  opts: { startsMidRecord: boolean; nowMs?: number; windowDays?: number },
+): SnapshotRecord[] {
+  const cutoff = (opts.nowMs ?? Date.now()) - (opts.windowDays ?? BASELINE_WINDOW_DAYS) * 86_400_000
+  const lines = text.split("\n")
+  if (opts.startsMidRecord) lines.shift()
+  const records: SnapshotRecord[] = []
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    try {
+      const rec = JSON.parse(trimmed) as SnapshotRecord
+      const ts = Date.parse(rec?.t)
+      if (Number.isFinite(ts) && ts >= cutoff) records.push(rec)
+    } catch {
+      // skip malformed line
+    }
+  }
+  return records
+}
+
 async function loadSnapshots(): Promise<SnapshotRecord[]> {
   if (cache && Date.now() - cache.fetchedAt < CACHE_TTL_MS) {
     return cache.records
   }
   try {
-    const r = await fetch(RAW_URL, { signal: AbortSignal.timeout(8000) })
+    const r = await fetch(RAW_URL, {
+      headers: { Range: `bytes=-${TAIL_BYTES}` },
+      signal: AbortSignal.timeout(8000),
+    })
     if (!r.ok) throw new Error(`raw fetch ${r.status}`)
-    // Reject an oversized body before buffering it (DoS guard).
+    // Reject an oversized body before buffering it (DoS guard; a server that
+    // ignores Range answers 200 with the whole file — the cap still holds).
     const len = Number(r.headers.get("content-length") ?? 0)
     if (len > MAX_SNAPSHOT_BYTES) throw new Error("snapshot file too large")
     const text = await r.text()
     if (text.length > MAX_SNAPSHOT_BYTES) throw new Error("snapshot body too large")
-    const records: SnapshotRecord[] = []
-    for (const line of text.split("\n")) {
-      const trimmed = line.trim()
-      if (!trimmed) continue
-      try {
-        records.push(JSON.parse(trimmed))
-      } catch {
-        // skip malformed line
-      }
-    }
+    // 206 "bytes N-M/T" with N>0 → the slice begins mid-record. A file smaller
+    // than TAIL_BYTES comes back as "bytes 0-..." (complete first line).
+    const rangeStart = Number(/^bytes (\d+)-/.exec(r.headers.get("content-range") ?? "")?.[1] ?? 0)
+    const records = parseSnapshotNdjson(text, { startsMidRecord: r.status === 206 && rangeStart > 0 })
     cache = { records, fetchedAt: Date.now() }
     return records
   } catch {
