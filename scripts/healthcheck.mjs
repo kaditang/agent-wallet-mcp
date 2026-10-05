@@ -106,7 +106,9 @@ async function checkSnapshots() {
 async function checkCollector(name, file, maxAgeH) {
   const url = RAW.replace("microstructure.ndjson", file)
   try {
-    const r = await withTimeout(fetch(url, { headers: { Range: "bytes=-262144" } }), 12000, name)
+    let r = await withTimeout(fetch(url, { headers: { Range: "bytes=-262144" } }), 12000, name)
+    // GitHub raw returns 416 when the range exceeds a small file — read it whole.
+    if (r.status === 416) r = await withTimeout(fetch(url), 12000, name)
     if (r.status === 404) return rec(name, "WARN", "file not created yet (first collector run pending?)")
     const lines = (await r.text()).trimEnd().split("\n")
     let t

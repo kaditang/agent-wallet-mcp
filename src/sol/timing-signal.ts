@@ -165,10 +165,15 @@ async function loadSnapshots(): Promise<SnapshotRecord[]> {
     return cache.records
   }
   try {
-    const r = await fetch(RAW_URL, {
+    let r = await fetch(RAW_URL, {
       headers: { Range: `bytes=-${TAIL_BYTES}` },
       signal: AbortSignal.timeout(8000),
     })
+    // GitHub raw answers 416 (NOT RFC 7233's whole-file 206) when the suffix
+    // range exceeds the file size. The file is then smaller than TAIL_BYTES, so
+    // just fetch it whole. Without this, a file < 3MB (fresh / rotated) would
+    // silently degrade every signal to "insufficient-history".
+    if (r.status === 416) r = await fetch(RAW_URL, { signal: AbortSignal.timeout(8000) })
     if (!r.ok) throw new Error(`raw fetch ${r.status}`)
     // Reject an oversized body before buffering it (DoS guard; a server that
     // ignores Range answers 200 with the whole file — the cap still holds).
