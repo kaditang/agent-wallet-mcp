@@ -77,6 +77,9 @@ const REPUTABLE_PROTOCOLS: Record<string, "low" | "medium" | "high"> = {
 export async function compareYields(opts?: {
   minTvlUsd?: number
   amountUsdc?: number
+  /** Max results returned (default 20). The research collector passes a large
+   *  value to store the whole ranked universe for later backtesting. */
+  limit?: number
 }): Promise<{
   asOf: string
   results: YieldEntry[]
@@ -178,7 +181,7 @@ export async function compareYields(opts?: {
 
   return {
     asOf: new Date().toISOString(),
-    results: results.slice(0, 20),
+    results: results.slice(0, opts?.limit ?? 20),
     topExecutable,
     topByRiskAdjustedOverall,
     topByRiskAdjusted: topExecutable, // deprecated back-compat alias

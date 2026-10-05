@@ -8,6 +8,7 @@
 //   3. Version alignment   — local package.json == npm latest
 //   4. Snapshot freshness  — research ndjson updated recently + growing
 //   5. Timing-signal data  — open-market sample count vs the MIN_SAMPLES=12 gate
+//   6. Research collectors — cost-curve (~3h) and yields (~daily) still landing
 //
 // Designed to be read at a glance: prints a PASS/WARN/FAIL line per check and a
 // one-line verdict. WARN (e.g. stale snapshot on a weekend) doesn't fail the run;
@@ -100,8 +101,33 @@ async function checkSnapshots() {
   }
 }
 
+// Research collectors (cost-curve ~3h, yields ~daily). Only the newest line's
+// `{"t":"…"` prefix is needed, so read just the tail via Range.
+async function checkCollector(name, file, maxAgeH) {
+  const url = RAW.replace("microstructure.ndjson", file)
+  try {
+    const r = await withTimeout(fetch(url, { headers: { Range: "bytes=-262144" } }), 12000, name)
+    if (r.status === 404) return rec(name, "WARN", "file not created yet (first collector run pending?)")
+    const lines = (await r.text()).trimEnd().split("\n")
+    let t
+    for (let i = lines.length - 1; i >= 0 && !t; i--) t = /^\{"t":"([^"]+)"/.exec(lines[i])?.[1]
+    if (!t) return rec(name, "WARN", "no readable record timestamp")
+    const ageH = (Date.now() - Date.parse(t)) / 3.6e6
+    rec(name, ageH > maxAgeH ? "WARN" : "PASS", `last ${ageH.toFixed(1)}h ago (expect < ${maxAgeH}h)`)
+  } catch (e) {
+    rec(name, "WARN", e.message)
+  }
+}
+
 const run = async () => {
-  await Promise.all([checkHealthz(), checkMcp(), checkVersion(), checkSnapshots()])
+  await Promise.all([
+    checkHealthz(),
+    checkMcp(),
+    checkVersion(),
+    checkSnapshots(),
+    checkCollector("cost-curve data", "cost-curve.ndjson", 12),
+    checkCollector("yields data", "yields.ndjson", 48),
+  ])
   const icon = { PASS: "✅", WARN: "⚠️ ", FAIL: "❌" }
   for (const r of results) console.log(`${icon[r.status]} ${r.name.padEnd(20)} ${r.detail}`)
   const fails = results.filter((r) => r.status === "FAIL")

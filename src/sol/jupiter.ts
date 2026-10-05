@@ -31,6 +31,18 @@ export type JupQuote = {
   routePlan: { swapInfo: JupRoutePlanStep; percent: number }[]
 }
 
+/**
+ * Jupiter's `priceImpactPct` is a FRACTION despite its name ("0.0109" = 1.09%).
+ * Verified empirically 2026-10-05: MCDx $100 vs $50k buy quotes differ by 0.94%
+ * in realized price while Jupiter reported 0.00157 → 0.01088. Passing the raw
+ * string through under a "Pct" label understated impact 100× to the AI/user.
+ * Returns a real percentage (4 dp), or null if unparseable.
+ */
+export function jupImpactToPercent(raw: string | number | undefined | null): number | null {
+  const n = Number(raw)
+  return raw != null && raw !== "" && Number.isFinite(n) ? Number((n * 100).toFixed(4)) : null
+}
+
 export async function jupiterQuote(opts: {
   inputMint: string
   outputMint: string

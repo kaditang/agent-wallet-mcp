@@ -4,7 +4,7 @@
 
 import { z } from "zod"
 import { findXStock, SOL_USDC, XSTOCKS } from "../sol/tokens.js"
-import { jupiterQuote, jupiterSwapTx } from "../sol/jupiter.js"
+import { jupImpactToPercent, jupiterQuote, jupiterSwapTx } from "../sol/jupiter.js"
 import { sanitizeError } from "./auth.js"
 import { compareYields } from "../sol/yields.js"
 import { getLiveTokenMeta } from "../sol/jupiter-meta.js"
@@ -415,7 +415,7 @@ export async function dispatch(
             shareMultiplier: mult.status === "unavailable" ? null : mult.value,
             shareMultiplierStatus: mult.status, // applied | none_on_mint | unavailable
             impliedPricePerShareUsdc: impliedPrice,
-            priceImpactPct: q.priceImpactPct,
+            priceImpactPct: jupImpactToPercent(q.priceImpactPct), // real % (Jupiter sends a fraction)
             routes: q.routePlan.map((r) => ({ amm: r.swapInfo.label, percent: r.percent })),
           },
           liquiditySnapshotUsd: stock.liquidityUsd,
@@ -1054,7 +1054,7 @@ async function buildSwapAndStash(opts: {
             expectedOut,
             minOut,
             slippageBps,
-            priceImpactPct: quote.priceImpactPct,
+            priceImpactPct: jupImpactToPercent(quote.priceImpactPct), // real % (Jupiter sends a fraction)
           },
         },
         null,
@@ -1169,7 +1169,7 @@ async function buildSwapAndStash(opts: {
                   shareMultiplierStatus: opts.shareInfo.mult.status,
                 }
             : {}),
-          priceImpactPct: quote.priceImpactPct,
+          priceImpactPct: jupImpactToPercent(quote.priceImpactPct), // real % (Jupiter sends a fraction)
           routes: quote.routePlan.map((r) => ({
             amm: r.swapInfo.label,
             percent: r.percent,
