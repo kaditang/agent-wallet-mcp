@@ -84,6 +84,10 @@
       "summary": "Export a wallet's tokenized-equity/yield trade history (date/action/asset/price/CSV) \u2014 a record for the accountant, not tax advice."
     },
     {
+      "name": "check_xstock_safety",
+      "summary": "Pre-trade safety check for a tokenized US stock (any issuer, Solana mint or EVM address): is it the REAL token, not a copycat, and OK to buy now. Free, read-only; run automatically before build_buy_xstock_tx."
+    },
+    {
       "name": "track_tx",
       "summary": "On-chain confirmation status for a Solana signature."
     },

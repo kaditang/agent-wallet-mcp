@@ -2,7 +2,7 @@
 // MCP stdio entry point — what `npx -y @kaditang/agent-wallet-mcp` runs from
 // a claude_desktop_config.json / Cursor local install. Speaks MCP over
 // stdin/stdout. The hosted HTTP transport (autoyield-api.fly.dev/mcp, Bearer
-// auth, sign-page flow) lives in index.ts; this local mode runs the same 13
+// auth, sign-page flow) lives in index.ts; this local mode runs the same
 // tools with the caller's own RPC config from env.
 //
 // CRITICAL: stdout is the MCP wire. Anything a module prints with console.log
@@ -41,7 +41,7 @@ async function main() {
   )
 
   await server.connect(new StdioServerTransport())
-  console.error("[stdio] agent-wallet MCP ready (13 tools)")
+  console.error(`[stdio] agent-wallet MCP ready (${tools.getToolList().length} tools)`)
 }
 
 main().catch((e) => {
