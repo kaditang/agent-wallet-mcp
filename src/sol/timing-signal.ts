@@ -33,9 +33,11 @@ const MAX_SNAPSHOT_BYTES = 10 * 1024 * 1024
 // would (a) hit the 10MB cap around mid-2027 and silently degrade every signal
 // to "insufficient-history", and (b) compare today's premium against months-old
 // microstructure. So: fetch only the tail (HTTP Range — raw.githubusercontent
-// serves 206) and keep the last BASELINE_WINDOW_DAYS. 3MB ≈ 110+ days at the
-// current ~2.6KB/record × ~10 records/day, comfortably covering the window.
-const TAIL_BYTES = 3 * 1024 * 1024
+// serves 206) and keep the last BASELINE_WINDOW_DAYS. Sized for the WORST
+// case, not the average: records are ~2.6KB and the Action can land up to
+// 24/day → 90 days ≈ 5.6MB. (A 3MB tail held only ~48 days at full cadence,
+// silently shrinking the "90-day" window whenever collection ran well.)
+const TAIL_BYTES = 6 * 1024 * 1024
 export const BASELINE_WINDOW_DAYS = 90
 
 function premiumInRange(p: number | null | undefined): p is number {

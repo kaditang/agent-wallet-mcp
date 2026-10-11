@@ -14,7 +14,11 @@ on:
     # the first 4.5h). Hourly gives more shots so the timing signal reaches
     # its 12-sample minimum in ~a day instead of a week. Dial back to */2 or
     # */4 once a solid baseline has accumulated.
-    - cron: "0 * * * *"
+    #
+    # Minute 17, NOT 0: GitHub documents that the start of every hour is peak
+    # load and queued scheduled jobs "may be dropped". On "0 * * * *" landed
+    # runs fell from ~15.6/day (Aug 2026) to ~4/day (Oct 2026).
+    - cron: "17 * * * *"
   workflow_dispatch: {} # allow manual trigger
 
 # Allow the job to push the appended data file back to the repo.
@@ -46,4 +50,14 @@ jobs:
           fi
           git add research/snapshots/
           git commit -m "data: microstructure snapshot $(date -u +%Y-%m-%dT%H:%MZ)"
-          git push
+          # Retry: the runner is ephemeral, so a failed push loses this run's
+          # data point for good. Seen: GitHub "Internal Server Error" on push
+          # (2026-10-05), and non-fast-forward when a dev push lands mid-run.
+          for i in 1 2 3 4; do
+            if git push; then exit 0; fi
+            echo "push failed (attempt $i), rebasing and retrying"
+            sleep $((i * 10))
+            git pull --rebase origin main
+          done
+          echo "push failed after retries"
+          exit 1

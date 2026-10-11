@@ -87,6 +87,16 @@ async function checkSnapshots() {
     const status = ageH > 12 ? "WARN" : "PASS"
     rec("snapshot pipeline", status, `${lines.length} records, last ${ageH.toFixed(1)}h ago`)
 
+    // Cadence: GitHub silently drops scheduled runs under load. A stalled
+    // pipeline shows up as age (above); a THROTTLED one only shows up here.
+    const weekAgo = Date.now() - 7 * 864e5
+    const perDay = lines.filter((l) => Date.parse(/^\{"t":"([^"]+)"/.exec(l)?.[1] ?? "") >= weekAgo).length / 7
+    rec(
+      "collection cadence",
+      perDay >= 8 ? "PASS" : "WARN",
+      `${perDay.toFixed(1)} snapshots/day over 7d (cron is hourly; < 8 = GitHub dropping runs)`,
+    )
+
     // open-market sample count drives whether the timing signal is live
     const open = lines
       .map((l) => JSON.parse(l))
