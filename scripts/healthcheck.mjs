@@ -60,6 +60,30 @@ async function checkMcp() {
   }
 }
 
+// Read-only research edition (the Claude directory listing): no auth, must
+// answer the MCP handshake.
+async function checkResearch() {
+  try {
+    const r = await withTimeout(
+      fetch(`${API}/research`, {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "healthcheck", version: "0" } },
+        }),
+      }),
+      8000,
+      "research",
+    )
+    rec("research endpoint", r.status === 200 ? "PASS" : "FAIL", `HTTP ${r.status}${r.status === 200 ? " (no-auth handshake ok)" : ""}`)
+  } catch (e) {
+    rec("research endpoint", "FAIL", e.message)
+  }
+}
+
 async function checkVersion() {
   try {
     const fs = await import("node:fs")
@@ -137,6 +161,7 @@ const run = async () => {
     checkMcp(),
     checkVersion(),
     checkSnapshots(),
+    checkResearch(),
     checkCollector("cost-curve data", "cost-curve.ndjson", 12),
     checkCollector("yields data", "yields.ndjson", 48),
   ])

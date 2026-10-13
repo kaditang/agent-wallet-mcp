@@ -18,12 +18,12 @@ import { getPrompt, listPrompts } from "./prompts.js"
 import { dispatch, getToolList } from "./tools.js"
 import { SERVER_VERSION } from "./version.js"
 
-export function createMcpServer(ctx: { userId?: string }) {
+export function createMcpServer(ctx: { userId?: string; readOnly?: boolean }) {
   const server = new Server(
     { name: "agent-wallet", version: SERVER_VERSION },
     { capabilities: { tools: {}, prompts: {} } },
   )
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: getToolList() as any }))
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: getToolList({ readOnly: ctx.readOnly }) as any }))
   // A tool that THROWS (upstream outage, bad args failing zod, …) used to
   // surface as a JSON-RPC protocol error carrying the raw message — once a
   // whole nginx 503 HTML page. MCP wants tool failures as a result with
@@ -39,9 +39,9 @@ export function createMcpServer(ctx: { userId?: string }) {
       }
     }
   })
-  server.setRequestHandler(ListPromptsRequestSchema, async () => ({ prompts: listPrompts() }))
+  server.setRequestHandler(ListPromptsRequestSchema, async () => ({ prompts: listPrompts({ readOnly: ctx.readOnly }) }))
   server.setRequestHandler(GetPromptRequestSchema, async (r) =>
-    getPrompt(r.params.name, (r.params.arguments ?? {}) as Record<string, string>),
+    getPrompt(r.params.name, (r.params.arguments ?? {}) as Record<string, string>, { readOnly: ctx.readOnly }),
   )
   return server
 }

@@ -852,9 +852,15 @@ app.get("/sol/balances", readLimiter, async (req, res) => {
 // not used by V1d service architecture.)
 
 // MCP transport. Stateless: V1 service tools take wallet as an arg, no per-user state.
-app.post("/mcp", mcpIpLimiter, requireAuth, mcpUserLimiter, async (req, res) => {
+// Shared stateless Streamable-HTTP handler for both MCP editions.
+async function serveMcp(
+  req: express.Request,
+  res: express.Response,
+  ctx: { userId?: string; readOnly?: boolean },
+  route: string,
+) {
   try {
-    const server = createMcpServer({ userId: req.userId })
+    const server = createMcpServer(ctx)
 
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
@@ -867,9 +873,30 @@ app.post("/mcp", mcpIpLimiter, requireAuth, mcpUserLimiter, async (req, res) => 
     await transport.handleRequest(req, res, req.body)
   } catch (e) {
     // transport may have already flushed headers; only send if we still can.
-    if (!res.headersSent) reply500(res, e, { route: "/mcp" })
+    if (!res.headersSent) reply500(res, e, { route })
   }
+}
+
+// Full edition: OAuth / api key; includes the build_* (prepare-to-sign) tools.
+app.post("/mcp", mcpIpLimiter, requireAuth, mcpUserLimiter, (req, res) =>
+  serveMcp(req, res, { userId: req.userId }, "/mcp"),
+)
+
+// Research edition — the Claude connector-directory listing. Read-only tools
+// over public data only (wallet addresses are public on-chain), so no login:
+// directory policy excludes software that transfers crypto or executes
+// financial transactions, and this edition does neither. One shared per-IP
+// bucket (directory traffic arrives from provider IPs), sized generously.
+const researchLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 600 * RL_SCALE,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "rate limited" },
 })
+app.post("/research", researchLimiter, (req, res) =>
+  serveMcp(req, res, { userId: "research", readOnly: true }, "/research"),
+)
 
 // (Removed: /paid-tool/echo, /paid/equity-brief, /risk/preflight — legacy EVM
 // x402 demo endpoints. Frozen for V1d service architecture; reusable patterns

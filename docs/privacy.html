@@ -35,55 +35,110 @@
       </p>
 
       <h1>Privacy Policy</h1>
-      <p class="meta">Last updated: 2026-05-10</p>
+      <p class="meta">Last updated: 2026-10-13</p>
 
-      <h2>What we collect</h2>
-      <p>
-        autoyield is a thin service layer. We collect the minimum needed
-        for it to function:
-      </p>
-      <ul>
-        <li><b>Solana wallet addresses</b> you pass to our tools (e.g., as the
-          <code>wallet</code> argument). These are public on-chain identifiers.</li>
-        <li><b>Bearer tokens</b> if you self-host and configure them. Used only
-          for authentication; never logged with their value.</li>
-        <li><b>Unsigned transactions</b> we construct on your behalf are stashed
-          temporarily for up to 24 hours (in the <code>data/sign-store.json</code>
-          file on the host) so the sign page can refetch and rebuild them.</li>
-        <li><b>Server logs</b> include endpoint paths, IP addresses (for
-          rate-limiting), and error messages. Logs are retained per the host's
-          configuration; on the canonical autoyield.org deployment, that is
-          ≤ 7 days unless required for security incident response.</li>
-      </ul>
+    <p>
+      This policy covers the hosted autoyield service: the MCP endpoints at
+      <code>autoyield-api.fly.dev</code> / <code>mcp.autoyield.org</code>
+      (<code>/mcp</code> — full edition, and <code>/research</code> —
+      read-only edition), the web pages on <code>autoyield.org</code>, and the
+      npm package when you run it yourself.
+    </p>
 
-      <h2>What we do NOT collect</h2>
-      <ul>
-        <li>Your private keys, seed phrase, or signed transactions (you sign in
-          your own wallet; the signed bytes pass through us only as a base64
-          payload during broadcast).</li>
-        <li>Email addresses, names, phone numbers, or other personally
-          identifying information. We do not run accounts.</li>
-        <li>Cookies. We do not set first-party cookies.</li>
-        <li>Third-party analytics (Google Analytics, Mixpanel, etc.).</li>
-      </ul>
+    <h2>What we collect</h2>
+    <ul>
+      <li><b>Tool inputs only.</b> The arguments your AI passes to a tool —
+        a Solana wallet address (a public on-chain identifier), a ticker, an
+        amount. We do not read or collect your conversation, Claude's memory,
+        chat history or files; we only receive what a tool call contains.</li>
+      <li><b>Read-only research edition (<code>/research</code>).</b> No
+        login and no account. Besides the tool inputs above, the only data is
+        your IP address, held in memory for rate limiting (one-minute
+        window), and standard request logs (see below).</li>
+      <li><b>Wallet-linked API key (full edition).</b> When you connect via
+        OAuth or sign in at <code>autoyield.org/account.html</code>, you sign
+        a free, off-chain message in your wallet. We store your wallet
+        address, a SHA-256 hash of the issued API key (never the key itself),
+        a label (e.g. the name of the app you connected) and timestamps. No
+        email, name, phone number or password.</li>
+      <li><b>OAuth client registrations.</b> The name and redirect URLs an
+        app (e.g. Claude) registers to connect. Pending authorizations and
+        one-time authorization codes live in memory for at most 10 and 5
+        minutes.</li>
+      <li><b>Unsigned transactions</b> the full edition prepares are stored
+        for up to 24 hours so the sign page can show and rebuild them. Your
+        signed transaction passes through us only to be broadcast to Solana;
+        we keep its signature (a public on-chain identifier).</li>
+      <li><b>Security audit log.</b> An append-only record of security-relevant
+        events: API keys issued or revoked, failed sign-ins, transactions
+        prepared and broadcast (wallet address, asset, amount, IP address,
+        time).</li>
+      <li><b>Request logs and error reports.</b> Our host (Fly.io) logs
+        request paths, IP addresses and errors. Server errors are reported to
+        Sentry with cookies, headers, request bodies and query strings
+        removed.</li>
+    </ul>
 
-      <h2>Where data goes</h2>
-      <p>
-        Your wallet address is shared with public Solana RPC providers and
-        with Jupiter (for quote and swap construction). It is also written
-        to the public Solana blockchain when you sign and broadcast a
-        transaction. None of this is something autoyield can prevent — it
-        is inherent to how a public blockchain works.
-      </p>
+    <h2>What we do NOT collect</h2>
+    <ul>
+      <li>Private keys or seed phrases — you sign everything in your own
+        wallet; we never can.</li>
+      <li>Email addresses, names, phone numbers, passwords or other
+        personal identifiers.</li>
+      <li>Your conversations with your AI, or anything outside a tool
+        call's arguments.</li>
+      <li>Cookies (we set none) or third-party analytics/advertising
+        trackers.</li>
+    </ul>
 
-      <h2>Self-hosting</h2>
-      <p>
-        autoyield is open source under the MIT License. You can run your
-        own instance with no external data flow other than to the RPCs and
-        third-party APIs you configure. See the GitHub repo for details.
-      </p>
+    <h2>How data is used</h2>
+    <p>
+      Only to run the service: answer tool calls, prepare transactions you
+      asked for, authenticate your connection, rate-limit abuse, and
+      investigate security incidents. We do not sell data, use it for
+      advertising, or build profiles.
+    </p>
 
-      <h2>Children</h2>
+    <h2>Third parties</h2>
+    <ul>
+      <li><b>Solana RPC providers</b> (Helius, public Solana endpoints) and
+        <b>Jupiter</b> receive wallet addresses and transaction data needed
+        to read balances, quote and build swaps. Broadcast transactions
+        become public on the Solana blockchain.</li>
+      <li><b>DefiLlama, Stooq and Yahoo Finance</b> receive only public
+        market queries (pools, tickers) — never your wallet address.</li>
+      <li><b>ipapi.co</b> — autoyield.org pages ask it for your country from
+        your browser, to show a notice to US visitors (the tokenized assets
+        are not offered to US persons). It sees your IP address.</li>
+      <li><b>Fly.io</b> (hosting), <b>Sentry</b> (error reports) and
+        <b>GitHub Pages</b> (the website) process data as our service
+        providers.</li>
+    </ul>
+
+    <h2>Retention</h2>
+    <ul>
+      <li>Rate-limit counters: about one minute, in memory.</li>
+      <li>Pending authorizations / authorization codes: 10 / 5 minutes.</li>
+      <li>Prepared unsigned transactions: up to 24 hours.</li>
+      <li>Host request logs: up to 7 days, unless needed for a security
+        incident.</li>
+      <li>API key records: until you revoke them (you can revoke all keys
+        for your wallet at any time by signing a message); at most 10 per
+        wallet, oldest replaced first.</li>
+      <li>OAuth client registrations: until the client is removed or
+        replaced (oldest dropped beyond 5,000).</li>
+      <li>Security audit log: kept for security review; we delete the
+        entries for your wallet address on request.</li>
+    </ul>
+
+    <h2>Self-hosting</h2>
+    <p>
+      autoyield is open source under the MIT License. Running the npm
+      package yourself (<code>npx -y @kaditang/agent-wallet-mcp</code>) sends
+      nothing to us — only to the RPC and market-data APIs listed above.
+    </p>
+
+<h2>Children</h2>
       <p>
         The Service is not directed to children under 18. Do not use it
         if you are under 18.
@@ -96,6 +151,7 @@
 
       <h2>Contact</h2>
       <p>
+        Questions, data-deletion or key-revocation requests:
         <a href="https://github.com/kaditang/agent-wallet-mcp/issues">
           github.com/kaditang/agent-wallet-mcp/issues
         </a>

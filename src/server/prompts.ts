@@ -16,7 +16,9 @@ type PromptDef = {
   title: string
   description: string
   arguments: PromptArg[]
-  render: (a: Record<string, string>) => string
+  render: (a: Record<string, string>, rules: string) => string
+  /** Builds transactions — excluded from the read-only research edition. */
+  writes?: boolean
 }
 
 const BASE58 = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/
@@ -24,6 +26,8 @@ const TICKER = /^[A-Za-z]{1,6}$/
 const AMOUNT = /^\d+(\.\d+)?$/
 
 const RULES = `Rules: reply in the language I write in. This is information, not investment advice. Do NOT call any build_* tool unless I explicitly confirm in a later message. autoyield never holds my funds — any transaction is signed by me in my own wallet.`
+// Research (read-only) edition: no build tools exist there.
+const RULES_READONLY = `Rules: reply in the language I write in. This is information, not investment advice.`
 
 const PROMPTS: PromptDef[] = [
   {
@@ -31,16 +35,17 @@ const PROMPTS: PromptDef[] = [
     title: "Portfolio checkup",
     description: "Review a wallet's tokenized stocks, treasuries and idle USDC, and get at most one suggested action.",
     arguments: [{ name: "wallet", description: "Solana wallet address to review", required: true }],
-    render: (a) =>
+    render: (a, rules) =>
       `Give my Solana wallet ${a.wallet} a checkup.\n\n` +
       `1. Call portfolio_health and get_portfolio for this wallet.\n` +
       `2. Summarize what I hold and its USD value in a short table.\n` +
       `3. Flag anything worth attention: idle USDC that earns nothing, a held yield token beaten by a better risk-adjusted option, an xStock position that looks rich or cheap vs its real stock.\n` +
       `4. End with at most ONE concrete suggestion, or say clearly that nothing needs doing.\n\n` +
-      RULES,
+      rules,
   },
   {
     name: "buy_us_stock",
+    writes: true,
     title: "Buy a US stock safely",
     description: "Safety check, live quote and entry-timing for a tokenized US stock, then build the buy only after you confirm.",
     arguments: [
@@ -48,36 +53,41 @@ const PROMPTS: PromptDef[] = [
       { name: "amountUsdc", description: "USDC to spend, e.g. 50", required: true },
       { name: "wallet", description: "Solana wallet that will sign and receive the shares", required: true },
     ],
-    render: (a) =>
+    render: (a, rules) =>
       `I want to buy about ${a.amountUsdc} USDC of ${a.ticker.toUpperCase()} as a tokenized stock, from wallet ${a.wallet}.\n\n` +
       `1. Call check_xstock_safety for ${a.ticker.toUpperCase()}. If it says avoid, stop and explain why.\n` +
       `2. Call quote_tokenized_stock for ${a.amountUsdc} USDC. Tell me the shares I'd get, the price impact, the sizeCost note if it is moderate or high, and what the entry-timing signal says (good entry / fair / rich — and whether its confidence is low).\n` +
       `3. Summarize in 3-4 lines and ask me whether to proceed.\n` +
       `4. Only if I confirm: call build_buy_xstock_tx, give me the sign link, and after I say I signed, check it with track_tx.\n\n` +
-      RULES,
+      rules,
   },
   {
     name: "best_yield",
     title: "Best yield for idle USDC",
     description: "Compare risk-adjusted USDC and tokenized-treasury yields, and explain the trade-offs.",
     arguments: [{ name: "amountUsdc", description: "Optional: how much USDC you're considering, e.g. 1000", required: false }],
-    render: (a) =>
+    render: (a, rules) =>
       `Where should idle USDC earn yield${a.amountUsdc ? ` (I'm considering about ${a.amountUsdc} USDC)` : ""}?\n\n` +
       `1. Call compare_yields${a.amountUsdc ? ` with amountUsdc ${a.amountUsdc}` : ""}.\n` +
       `2. Show the best option I can act on now (topExecutable) and the best across all chains (topByRiskAdjustedOverall), with headline APY vs risk-adjusted APY and the main risk notes.\n` +
       `3. Explain in plain words why a lower headline APY can be the better pick.\n\n` +
-      RULES,
+      rules,
   },
 ]
 
 const VALIDATORS: Record<string, RegExp> = { wallet: BASE58, ticker: TICKER, amountUsdc: AMOUNT }
 
-export function listPrompts() {
-  return PROMPTS.map(({ name, title, description, arguments: args }) => ({ name, title, description, arguments: args }))
+export function listPrompts(opts?: { readOnly?: boolean }) {
+  return PROMPTS.filter((p) => !opts?.readOnly || !p.writes).map(({ name, title, description, arguments: args }) => ({
+    name,
+    title,
+    description,
+    arguments: args,
+  }))
 }
 
-export function getPrompt(name: string, args: Record<string, string> = {}) {
-  const def = PROMPTS.find((p) => p.name === name)
+export function getPrompt(name: string, args: Record<string, string> = {}, opts?: { readOnly?: boolean }) {
+  const def = PROMPTS.find((p) => p.name === name && (!opts?.readOnly || !p.writes))
   if (!def) throw new McpError(ErrorCode.InvalidParams, `unknown prompt: ${name}`)
   const clean: Record<string, string> = {}
   for (const arg of def.arguments) {
@@ -92,6 +102,8 @@ export function getPrompt(name: string, args: Record<string, string> = {}) {
   }
   return {
     description: def.description,
-    messages: [{ role: "user" as const, content: { type: "text" as const, text: def.render(clean) } }],
+    messages: [
+      { role: "user" as const, content: { type: "text" as const, text: def.render(clean, opts?.readOnly ? RULES_READONLY : RULES) } },
+    ],
   }
 }

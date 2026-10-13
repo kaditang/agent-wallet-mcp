@@ -74,7 +74,7 @@ const TOOLS = [
   {
     name: "compare_yields",
     description:
-      "Rank USDC lending + tokenized-treasury yields across major chains (Solana, Ethereum, Base, Arbitrum) via DefiLlama, RISK-ADJUSTED. Results are ranked by riskAdjustedApy (not headline APY): each pool's APY is discounted by volatility (sigma), TVL depth, protocol risk, DefiLlama's stability prediction, reward-emission dependence, and IL exposure. Each entry includes riskScore (0-100), riskFactors breakdown, and riskNotes explaining the discount — surface these so the user understands WHY a lower headline APY may be the better pick. Solana protocols (Kamino, MarginFi, Drift, JLP) are executable=true; other chains read-only in V1. Returns BOTH topExecutable (best risk-adjusted pool the user can act on today — recommend this for action) AND topByRiskAdjustedOverall (best across ALL chains, may be read-only in V1 — surface it so the user sees the true market-best, e.g. 'the global best is X% on Ethereum but the best you can execute now is Y% on Solana'). topByRiskAdjusted is a deprecated alias of topExecutable.",
+      "Ranks USDC lending and tokenized-treasury yields across Solana, Ethereum, Base and Arbitrum (DefiLlama data) by risk-adjusted APY instead of headline APY. Each pool's APY is discounted for volatility, TVL depth, protocol risk, DefiLlama's stability prediction, reward-emission dependence and impermanent-loss exposure; every entry carries a riskScore (0-100), a riskFactors breakdown and riskNotes explaining the discount. Solana pools are marked executable (autoyield can prepare a deposit); other chains are informational. The response includes topExecutable (best risk-adjusted executable pool) and topByRiskAdjustedOverall (best across all chains); topByRiskAdjusted is a deprecated alias of topExecutable. Read-only.",
     inputSchema: {
       type: "object",
       properties: {
@@ -86,13 +86,13 @@ const TOOLS = [
   {
     name: "list_yield_tokens",
     description:
-      "List supported tokenized treasury / yield-bearing tokens (USDY by Ondo Finance, more coming). These are SEC-registered securities under non-US prospectus, NOT stablecoins — unaffected by GENIUS/CLARITY Acts that ban stablecoin-issuer interest. Each share appreciates as interest accrues.",
+      "Lists the supported tokenized-treasury tokens (currently USDY by Ondo Finance): yield-bearing securities offered under a non-US prospectus, not stablecoins; each token's value grows as interest accrues. Read-only.",
     inputSchema: { type: "object", properties: {} },
   },
   {
     name: "list_xstocks",
     description:
-      "List supported tokenized US equities (Backed xStocks). 16 tickers across mega-cap-tech (NVDA/AAPL/TSLA/MSFT/GOOGL/AMZN/META), crypto-equity (COIN/MSTR/HOOD/CRCL), broad-market-etf (SPY/QQQ), commodity-etf (GLD), consumer (MCD), ai-defense (PLTR). Includes live Jupiter liquidity + USD price. For non-US holders only.",
+      "Lists the supported tokenized US stocks (Backed xStocks on Solana): 16 tickers across mega-cap tech (NVDA/AAPL/TSLA/MSFT/GOOGL/AMZN/META), crypto equities (COIN/MSTR/HOOD/CRCL), broad-market ETFs (SPY/QQQ), a gold ETF (GLD), consumer (MCD) and AI/defense (PLTR), with live Jupiter liquidity and USD price. xStocks are not available to US persons. Read-only.",
     inputSchema: {
       type: "object",
       properties: {
@@ -114,7 +114,7 @@ const TOOLS = [
   {
     name: "quote_tokenized_stock",
     description:
-      "Live Jupiter quote for buying a Backed xStock with USDC on Solana. Returns expected output, price impact, route, a sizeCost block for orders ≥ $200 (how much more per share this size costs than a $100 buy — surface it when moderate/high), AND a best-entry timing signal (live premium vs the underlying NYSE price, z-scored against a same-market-regime trailing baseline: good-entry / fair / rich-wait). Surface the timing note to the user. READ ONLY — no on-chain action.",
+      "Returns a live Jupiter quote for buying a Backed xStock (tokenized US stock) with USDC on Solana: expected shares, minimum shares at the given slippage, price impact and route. For orders of $200 or more it adds sizeCost: how much more per share the order costs than a $100 buy. It also returns an entry-timing signal comparing the xStock's live premium or discount to the underlying NYSE price against its own trailing history in the same market regime (good-entry / fair / rich-wait, with a confidence level and a plain-language note). Read-only; creates no transaction.",
     inputSchema: {
       type: "object",
       properties: {
@@ -128,7 +128,7 @@ const TOOLS = [
   {
     name: "get_portfolio",
     description:
-      "Snapshot a Solana wallet: SOL, USDC, every held xStock or yield token priced via Jupiter. Returns total USD value. Read-only.",
+      "Returns a snapshot of a Solana wallet from public on-chain data: SOL, USDC and every held xStock or yield token, priced via Jupiter, plus total USD value. Read-only.",
     inputSchema: {
       type: "object",
       properties: { wallet: { type: "string", description: "Solana wallet pubkey (base58)" } },
@@ -138,7 +138,7 @@ const TOOLS = [
   {
     name: "portfolio_health",
     description:
-      "Stateless 'should I do anything?' check for a wallet — the periodic re-engagement tool. Returns holdings (via get_portfolio), compares held yield to the best RISK-ADJUSTED executable yield available right now, and for each held xStock computes its live premium/discount vs the underlying + an entry/exit timing signal (from accumulated microstructure data). Emits actionable `notes` the AI should surface conversationally: e.g. 'your USDY is still the best risk-adjusted option', 'Kamino now offers more', 'the NVDAx you hold is at a +2% premium — rich if you're thinking of selling', 'you have idle USDC earning nothing'. Read-only, no signing. Run it when a user checks in to give them a reason to act (or reassurance to hold).",
+      "Checks a Solana wallet and summarizes whether anything needs attention: current holdings, held yield tokens compared with the best risk-adjusted executable yield, and for each held xStock its live premium or discount to the underlying stock with a timing signal. Returns short plain-language notes (for example idle USDC earning nothing, or a held xStock trading at a premium). Read-only.",
     inputSchema: {
       type: "object",
       properties: { wallet: { type: "string", description: "Solana wallet pubkey (base58)" } },
@@ -148,7 +148,7 @@ const TOOLS = [
   {
     name: "suggest_rebalance",
     description:
-      "Discipline tool: given a TARGET allocation, compute the trades that move a wallet toward it. READ-ONLY — it suggests buy/sell USD amounts per asset; the user executes via build_buy_xstock_tx / build_sell_xstock_tx / build_deposit_yield_tx and signs in their own wallet. Allocation base = USDC + held xStocks + held yield tokens (SOL is excluded as gas reserve). Each asset gets current% / target% / drift / deltaUsd (+buy / −sell) / action. Holds assets already within the drift threshold (no churn on noise); flags held assets not in the target (sold to 0). Surface the actions conversationally so the user can approve each trade.",
+      "Given a target allocation, computes the buy and sell amounts per asset that would move a Solana wallet toward it. The allocation base is USDC plus held xStocks and yield tokens (SOL is excluded as gas reserve). Each asset gets current %, target %, drift, deltaUsd (+buy / -sell) and an action; assets within the drift threshold are left alone, and held assets missing from the target are flagged to sell. Read-only: it only computes suggestions.",
     inputSchema: {
       type: "object",
       properties: {
@@ -181,7 +181,7 @@ const TOOLS = [
   {
     name: "export_history",
     description:
-      "Errand tool: export a wallet's tokenized-equity + yield-token TRADE HISTORY (a record for the user's accountant — NOT tax advice / not a tax calculation). Reconstructs USDC↔xStock and USDC↔yield-token swaps from on-chain history; execution price is derived from each tx's own balance deltas (no external price feed). Returns structured trades (date, buy/sell, asset, amount, USDC, price, Solscan link) + a CSV string. Capped at the last N signatures (default 100). Read-only.",
+      "Exports a wallet's tokenized-stock and yield-token trade history as a record (for example for an accountant; not tax advice and not a tax calculation). Reconstructs USDC to xStock and USDC to yield-token swaps from on-chain history, deriving each execution price from the transaction's own balance changes. Returns structured trades (date, buy/sell, asset, amount, USDC, price, Solscan link) and a CSV string for the last N signatures (default 100). Read-only.",
     inputSchema: {
       type: "object",
       properties: {
@@ -197,7 +197,7 @@ const TOOLS = [
   {
     name: "check_xstock_safety",
     description:
-      "Pre-trade SAFETY check for a tokenized US stock — verify it's the REAL token (not a copycat) and OK to buy right now, BEFORE building a buy tx. Works for any issuer (Backed/xStocks, Ondo, Remora) and any Solana mint or EVM address. Pass `ticker` (e.g. NVDA → checks the canonical xStock) OR `token` (a symbol like AAPLx / AAPLon, or a raw mint/0x address) → returns decision (ok/review/avoid), issuer + whether it's verified against the issuer's own registry, and why. Catches copycats/fakes (the #1 risk — agents buy impersonator tokens), depeg, thin liquidity, off-hours mispricing, trading halts. FREE, read-only. STRONGLY recommended before build_buy_xstock_tx, and essential before buying any token NOT in list_xstocks.",
+      "Pre-trade safety check for a tokenized US stock: verifies it is the issuer's genuine token rather than a copycat, and whether it looks safe to buy right now (depeg, thin liquidity, off-hours mispricing, trading halts). Works for any issuer (Backed/xStocks, Ondo, Remora) and any Solana mint or EVM address. Pass ticker (e.g. NVDA, which checks the canonical xStock) or token (a symbol such as AAPLx or AAPLon, or a mint / 0x address). Returns a decision (ok / review / avoid), the issuer, whether the token is verified against the issuer's own registry, and the reasons. Read-only.",
     inputSchema: {
       type: "object",
       properties: {
@@ -209,7 +209,7 @@ const TOOLS = [
   {
     name: "track_tx",
     description:
-      "Check a Solana transaction's on-chain status. Returns confirmation, success/fail, Solscan URL.",
+      "Looks up a Solana transaction's on-chain status: confirmation level, success or failure, and a Solscan link. Read-only.",
     inputSchema: {
       type: "object",
       properties: { signature: { type: "string", description: "Solana tx signature (base58)" } },
@@ -221,7 +221,7 @@ const TOOLS = [
   {
     name: "build_deposit_yield_tx",
     description:
-      "Build (do NOT send) an unsigned Solana transaction that swaps USDC for a yield-bearing tokenized treasury (USDY for non-US users). Returns base64 versioned tx + a one-click sign URL. SERVICE only — user signs in their wallet.",
+      "Prepares (does not send) an unsigned Solana transaction that swaps USDC for a tokenized-treasury token (e.g. USDY) via Jupiter. Returns the base64 versioned transaction and a sign link. Nothing is executed: the user reviews and signs it in their own wallet.",
     inputSchema: {
       type: "object",
       properties: {
@@ -236,7 +236,7 @@ const TOOLS = [
   {
     name: "build_buy_xstock_tx",
     description:
-      "Build (do NOT send) an unsigned Solana transaction that swaps USDC for a Backed xStock via Jupiter. Returns base64 versioned tx + sign URL. SERVICE only — user signs in their wallet.",
+      "Prepares (does not send) an unsigned Solana transaction that swaps USDC for a Backed xStock via Jupiter, after an automatic safety check. Returns the base64 versioned transaction and a sign link. Nothing is executed: the user reviews and signs it in their own wallet.",
     inputSchema: {
       type: "object",
       properties: {
@@ -251,7 +251,7 @@ const TOOLS = [
   {
     name: "build_sell_xstock_tx",
     description:
-      "Build (do NOT send) an unsigned Solana transaction that sells a Backed xStock back to USDC via Jupiter. Returns base64 versioned tx + sign URL. SERVICE only.",
+      "Prepares (does not send) an unsigned Solana transaction that sells a Backed xStock for USDC via Jupiter. amountShares is in shares as wallets display them, or 'max' for the whole balance. Returns the base64 versioned transaction and a sign link. Nothing is executed: the user reviews and signs it in their own wallet.",
     inputSchema: {
       type: "object",
       properties: {
@@ -266,7 +266,7 @@ const TOOLS = [
   {
     name: "build_withdraw_yield_tx",
     description:
-      "Build (do NOT send) an unsigned Solana transaction that swaps a yield-bearing token (e.g. USDY) back to USDC via Jupiter. Returns base64 versioned tx + sign URL.",
+      "Prepares (does not send) an unsigned Solana transaction that swaps a tokenized-treasury token (e.g. USDY) back to USDC via Jupiter. Returns the base64 versioned transaction and a sign link. Nothing is executed: the user reviews and signs it in their own wallet.",
     inputSchema: {
       type: "object",
       properties: {
@@ -295,8 +295,22 @@ export async function dispatch(
     name: string
     arguments?: any
   },
-  ctx?: { userId?: string },
+  ctx?: { userId?: string; readOnly?: boolean },
 ) {
+  // Read-only "research" edition (the Claude directory listing): it never
+  // lists the build_* tools, and refuses them here too in case a client calls
+  // one by name anyway. Directory policy excludes software that transfers
+  // crypto or executes financial transactions; this edition only reads.
+  if (ctx?.readOnly && !TOOL_ANNOTATIONS[name]?.readOnlyHint) {
+    return text(
+      JSON.stringify({
+        ok: false,
+        error: `${name} is not available in the read-only autoyield research connector. It only analyzes public data and never prepares transactions.`,
+      }),
+      true,
+    )
+  }
+
   // --- READ ---
   if (name === "compare_yields") {
     const { minTvlUsd, amountUsdc } = z
@@ -655,7 +669,8 @@ export async function dispatch(
           }
         }
       }
-      return { ...a, executeWith, executeArgs, executeNote }
+      // Research edition: no build tools exist there, so don't point at them.
+      return ctx?.readOnly ? { ...a } : { ...a, executeWith, executeArgs, executeNote }
     })
 
     return text(
@@ -668,8 +683,9 @@ export async function dispatch(
           driftThresholdPct: driftThresholdPct ?? 3,
           actions,
           notes: plan.notes,
-          disclaimer:
-            "Suggestion only — not advice. You execute each trade via the build_*_tx tools and sign in your own wallet. SOL excluded from the allocation base (gas reserve).",
+          disclaimer: ctx?.readOnly
+            ? "Suggestion only — not advice. SOL excluded from the allocation base (gas reserve)."
+            : "Suggestion only — not advice. You execute each trade via the build_*_tx tools and sign in your own wallet. SOL excluded from the allocation base (gas reserve).",
         },
         null,
         2,
@@ -1290,6 +1306,8 @@ export const TOOL_ANNOTATIONS: Record<string, ToolAnnotations> = {
   build_withdraw_yield_tx: BUILD("Build a yield withdrawal (you sign)"),
 }
 
-export function getToolList() {
-  return TOOLS.map((t) => (TOOL_ANNOTATIONS[t.name] ? { ...t, annotations: TOOL_ANNOTATIONS[t.name] } : t))
+export function getToolList(opts?: { readOnly?: boolean }) {
+  return TOOLS.filter((t) => !opts?.readOnly || TOOL_ANNOTATIONS[t.name]?.readOnlyHint).map((t) =>
+    TOOL_ANNOTATIONS[t.name] ? { ...t, annotations: TOOL_ANNOTATIONS[t.name] } : t,
+  )
 }
