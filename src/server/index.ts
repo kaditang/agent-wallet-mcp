@@ -6,12 +6,7 @@ initSentry()
 import express from "express"
 import cors from "cors"
 import rateLimit from "express-rate-limit"
-import { Server } from "@modelcontextprotocol/sdk/server/index.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js"
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from "@modelcontextprotocol/sdk/types.js"
 import { z } from "zod"
 import { requireAuth, reply500 } from "./auth.js"
 import {
@@ -25,7 +20,8 @@ import {
 import { audit, flushAuditSync } from "./audit.js"
 import nacl from "tweetnacl"
 import bs58 from "bs58"
-import { clampSlippage, dispatch as toolDispatch, getToolList } from "./tools.js"
+import { clampSlippage } from "./tools.js"
+import { createMcpServer } from "./mcp-server.js"
 import { preflightSignedTx, PREFLIGHT_ENFORCE } from "../sol/preflight.js"
 import { captureMessage } from "./sentry.js"
 import { getBalances } from "../sol/balances.js"
@@ -40,7 +36,6 @@ import {
 import { randomUUID } from "node:crypto"
 import { withRpcFallback } from "../sol/connection.js"
 import { VersionedTransaction } from "@solana/web3.js"
-import { SERVER_VERSION } from "./version.js"
 
 export const app = express()
 
@@ -776,14 +771,7 @@ app.get("/sol/balances", readLimiter, async (req, res) => {
 // MCP transport. Stateless: V1 service tools take wallet as an arg, no per-user state.
 app.post("/mcp", buildLimiter, requireAuth, async (req, res) => {
   try {
-    const server = new Server(
-      { name: "agent-wallet", version: SERVER_VERSION },
-      { capabilities: { tools: {} } },
-    )
-    server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: getToolList() as any }))
-    server.setRequestHandler(CallToolRequestSchema, async (r) =>
-      toolDispatch(r.params, { userId: req.userId }),
-    )
+    const server = createMcpServer({ userId: req.userId })
 
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,

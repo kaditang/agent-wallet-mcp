@@ -1194,6 +1194,49 @@ async function buildSwapAndStash(opts: {
   )
 }
 
+// MCP tool annotations (hints for clients — e.g. Claude can offer "always
+// allow" for read-only tools and keep confirming the rest). Kept in a map
+// next to getToolList rather than inline in TOOLS so a test can assert EVERY
+// tool has an entry: a new tool must make an explicit safety call.
+//
+// build_* tools: NOT read-only (each call stashes a new pending transaction
+// server-side), NOT idempotent (fresh quote + new sign id each call), but NOT
+// destructive either — nothing moves until the user signs in their own
+// wallet. That is the honest description of a non-custodial builder; clients
+// will still ask before calling them, which is what we want for money.
+type ToolAnnotations = {
+  title: string
+  readOnlyHint: boolean
+  destructiveHint?: boolean
+  idempotentHint?: boolean
+  openWorldHint: boolean
+}
+const READ = (title: string): ToolAnnotations => ({ title, readOnlyHint: true, openWorldHint: true })
+const BUILD = (title: string): ToolAnnotations => ({
+  title,
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: false,
+  openWorldHint: true,
+})
+export const TOOL_ANNOTATIONS: Record<string, ToolAnnotations> = {
+  compare_yields: READ("Compare risk-adjusted USDC yields"),
+  // Static registry, no external calls.
+  list_yield_tokens: { title: "List tokenized treasuries", readOnlyHint: true, openWorldHint: false },
+  list_xstocks: READ("List tokenized US stocks"),
+  quote_tokenized_stock: READ("Quote a tokenized US stock"),
+  get_portfolio: READ("Get wallet portfolio"),
+  portfolio_health: READ("Portfolio health check"),
+  suggest_rebalance: READ("Suggest a rebalance"),
+  export_history: READ("Export trade history"),
+  check_xstock_safety: READ("Check xStock safety before buying"),
+  track_tx: READ("Track a transaction"),
+  build_deposit_yield_tx: BUILD("Build a yield deposit (you sign)"),
+  build_buy_xstock_tx: BUILD("Build a stock buy (you sign)"),
+  build_sell_xstock_tx: BUILD("Build a stock sell (you sign)"),
+  build_withdraw_yield_tx: BUILD("Build a yield withdrawal (you sign)"),
+}
+
 export function getToolList() {
-  return TOOLS
+  return TOOLS.map((t) => (TOOL_ANNOTATIONS[t.name] ? { ...t, annotations: TOOL_ANNOTATIONS[t.name] } : t))
 }

@@ -93,6 +93,18 @@ SENTRY_RELEASE=<git-sha>            # optional, for release tracking
 | `build_buy_xstock_tx` | Build unsigned USDC → xStock tx + sign URL. | **No** |
 | `build_sell_xstock_tx` | Build unsigned xStock → USDC tx + sign URL. | **No** |
 
+Every tool carries MCP annotations: the 10 read tools are marked read-only (clients can offer "always allow"); the 4 `build_*` tools are marked not read-only but **not destructive** — they only prepare a transaction, nothing moves until you sign.
+
+## Prompts
+
+Ready-made workflows that show up in your client's prompt menu (e.g. Claude Desktop / Claude Code):
+
+| Prompt | Arguments | What it does |
+|--------|-----------|--------------|
+| `portfolio_checkup` | `wallet` | Reviews holdings, idle USDC and positions, ends with at most one suggestion. |
+| `buy_us_stock` | `ticker`, `amountUsdc`, `wallet` | Safety check → live quote + entry timing → builds the buy **only after you confirm**. |
+| `best_yield` | `amountUsdc` (optional) | Best actionable vs global risk-adjusted yield, and why a lower headline APY can win. |
+
 ## Architecture
 
 ```

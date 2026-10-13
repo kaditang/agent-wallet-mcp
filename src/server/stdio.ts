@@ -18,27 +18,15 @@ console.log = (...args: unknown[]) => console.error(...args)
 process.env.MCP_LOCAL_STDIO = "1"
 
 async function main() {
-  // Dynamic like everything else here (see the stdout note above), even though
-  // version.ts has no side effects — keeps the "nothing imports before the
-  // rebind" rule free of exceptions.
-  const [{ Server }, { StdioServerTransport }, types, tools, { SERVER_VERSION }] = await Promise.all([
-    import("@modelcontextprotocol/sdk/server/index.js"),
+  // Dynamic like everything else here (see the stdout note above): nothing that
+  // could log may be imported before the console.log rebind.
+  const [{ StdioServerTransport }, { createMcpServer }, tools] = await Promise.all([
     import("@modelcontextprotocol/sdk/server/stdio.js"),
-    import("@modelcontextprotocol/sdk/types.js"),
+    import("./mcp-server.js"),
     import("./tools.js"),
-    import("./version.js"),
   ])
 
-  const server = new Server(
-    { name: "agent-wallet", version: SERVER_VERSION },
-    { capabilities: { tools: {} } },
-  )
-  server.setRequestHandler(types.ListToolsRequestSchema, async () => ({
-    tools: tools.getToolList() as any,
-  }))
-  server.setRequestHandler(types.CallToolRequestSchema, async (r) =>
-    tools.dispatch(r.params, { userId: "stdio-local" }),
-  )
+  const server = createMcpServer({ userId: "stdio-local" })
 
   await server.connect(new StdioServerTransport())
   console.error(`[stdio] agent-wallet MCP ready (${tools.getToolList().length} tools)`)
