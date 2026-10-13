@@ -186,6 +186,7 @@ async function usageReport() {
       lines.push(`  ${ed.padEnd(8)} connections ${v.connects}, tool calls ${calls}`)
       for (const [name, t] of Object.entries(v.tools).sort((a, b) => b[1].calls - a[1].calls)) {
         lines.push(`    ${name.padEnd(22)} ${String(t.calls).padStart(5)} calls  ${String(t.errors).padStart(3)} err  p50≤${t.p50Ms}ms p95≤${t.p95Ms}ms`)
+        for (const e of t.lastErrors ?? []) lines.push(`      ↳ ${e}`)
       }
     }
     if (lines.length === 1) lines.push("  no traffic recorded yet")

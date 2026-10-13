@@ -74,6 +74,43 @@ const REPUTABLE_PROTOCOLS: Record<string, "low" | "medium" | "high"> = {
   "yearn-finance": "medium", // vault-of-vaults, strategy risk
 }
 
+// DefiLlama's /pools is a multi-megabyte list that changes slowly (APYs are
+// refreshed roughly hourly). It was downloaded and parsed on EVERY call —
+// 1-2.4s per compare_yields / portfolio_health. Cache it for 5 minutes and
+// share one in-flight request between concurrent callers. On a failed refresh,
+// a stale copy (< 1h) is better than an error.
+const LLAMA_TTL_MS = 5 * 60_000
+const LLAMA_STALE_OK_MS = 60 * 60_000
+let llamaCache: { data: any[]; at: number } | null = null
+let llamaInflight: Promise<any[]> | null = null
+
+async function llamaPools(): Promise<any[]> {
+  if (llamaCache && Date.now() - llamaCache.at < LLAMA_TTL_MS) return llamaCache.data
+  llamaInflight ??= (async () => {
+    try {
+      // 8s timeout — DefiLlama is usually <1s but has occasional 30s+ stalls;
+      // we'd rather fail fast than pin an Express slot.
+      const r = await fetch(LLAMA, { signal: AbortSignal.timeout(8000) })
+      if (!r.ok) throw new Error(`defillama ${r.status}`)
+      const j = (await r.json()) as { data: any[] }
+      llamaCache = { data: j.data, at: Date.now() }
+      return j.data
+    } catch (e) {
+      if (llamaCache && Date.now() - llamaCache.at < LLAMA_STALE_OK_MS) return llamaCache.data
+      throw e
+    } finally {
+      llamaInflight = null
+    }
+  })()
+  return llamaInflight
+}
+
+/** Test hook. */
+export function _clearYieldsCache() {
+  llamaCache = null
+  llamaInflight = null
+}
+
 export async function compareYields(opts?: {
   minTvlUsd?: number
   amountUsdc?: number
@@ -98,11 +135,7 @@ export async function compareYields(opts?: {
 }> {
   const minTvl = opts?.minTvlUsd ?? 100_000
 
-  // 8s timeout — DefiLlama is usually <1s but has occasional 30s+ stalls;
-  // we'd rather fail fast than pin an Express slot.
-  const r = await fetch(LLAMA, { signal: AbortSignal.timeout(8000) })
-  if (!r.ok) throw new Error(`defillama ${r.status}`)
-  const j = (await r.json()) as { data: any[] }
+  const j = { data: await llamaPools() }
 
   const results: YieldEntry[] = []
   for (const p of j.data) {

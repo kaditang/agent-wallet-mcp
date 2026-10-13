@@ -11,6 +11,7 @@
 
 import { SOL_USDC, XSTOCKS } from "./tokens.js"
 import { YIELD_TOKENS } from "./yield-tokens.js"
+import type { Connection } from "@solana/web3.js"
 import { withRpcFallback } from "./connection.js"
 
 export type RegistryAsset = {
@@ -98,6 +99,8 @@ export type HistoryEntry = Trade & {
  * USDC↔(xStock|yield) trades. Capped at `limit` signatures (default 100) to
  * bound RPC load. Read-only.
  */
+const HISTORY_CONCURRENCY = 5
+
 export async function fetchTradeHistory(
   wallet: string,
   limit = 100,
@@ -110,20 +113,34 @@ export async function fetchTradeHistory(
     c.getSignaturesForAddress(pubkey, { limit: Math.min(Math.max(limit, 1), 200) }),
   )
 
+  // Fetch the transactions 5 at a time (was strictly one by one: ~2.3s for 20).
+  // Bounded so a 200-signature request can't burst the RPC provider; results
+  // keep the signature order.
+  const ok = sigs.filter((s) => !s.err) // skip failed txs
+  const txs: (Awaited<ReturnType<Connection["getParsedTransaction"]>> | null)[] = new Array(ok.length).fill(null)
+  let next = 0
+  await Promise.all(
+    Array.from({ length: Math.min(HISTORY_CONCURRENCY, ok.length) }, async () => {
+      while (next < ok.length) {
+        const i = next++
+        try {
+          txs[i] = await withRpcFallback((c) =>
+            c.getParsedTransaction(ok[i].signature, {
+              maxSupportedTransactionVersion: 0,
+              commitment: "confirmed",
+            }),
+          )
+        } catch {
+          txs[i] = null
+        }
+      }
+    }),
+  )
+
   const entries: HistoryEntry[] = []
-  for (const s of sigs) {
-    if (s.err) continue // skip failed txs
-    let tx
-    try {
-      tx = await withRpcFallback((c) =>
-        c.getParsedTransaction(s.signature, {
-          maxSupportedTransactionVersion: 0,
-          commitment: "confirmed",
-        }),
-      )
-    } catch {
-      continue
-    }
+  for (let i = 0; i < ok.length; i++) {
+    const s = ok[i]
+    const tx = txs[i]
     if (!tx?.meta) continue
 
     // Compute per-mint UI-amount deltas for THIS wallet's token accounts.

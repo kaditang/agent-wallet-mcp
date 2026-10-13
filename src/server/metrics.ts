@@ -22,7 +22,7 @@ const BINS = [250, 500, 1000, 2000, 4000, 8000, Infinity] as const
 const RETAIN_DAYS = 90
 const PATH = process.env.METRICS_PATH ?? "data/metrics.json"
 
-type ToolStat = { calls: number; errors: number; msSum: number; hist: number[] }
+type ToolStat = { calls: number; errors: number; msSum: number; hist: number[]; lastErrors?: string[] }
 type EditionDay = { connects: number; tools: Record<string, ToolStat>; prompts: Record<string, number> }
 type Store = { days: Record<string, Partial<Record<Edition, EditionDay>>> }
 
@@ -63,10 +63,23 @@ export function flushMetricsSync() {
   }
 }
 
-export function recordToolCall(edition: Edition, tool: string, ok: boolean, ms: number) {
+/** PURE: error text safe to keep — wallet/mint-like strings and URLs removed, short. */
+export function redactError(msg: string): string {
+  return msg
+    .replace(/https?:\/\/\S+/g, "[url]")
+    .replace(/\b(0x[0-9a-fA-F]{40}|[1-9A-HJ-NP-Za-km-z]{32,88})\b/g, "[addr]")
+    .slice(0, 160)
+}
+
+export function recordToolCall(edition: Edition, tool: string, ok: boolean, ms: number, error?: string) {
   const t = (day(edition).tools[tool] ??= { calls: 0, errors: 0, msSum: 0, hist: BINS.map(() => 0) })
   t.calls++
-  if (!ok) t.errors++
+  if (!ok) {
+    t.errors++
+    // Why it failed (redacted, last 5 per tool per day) — counts alone can't
+    // tell a transient upstream 503 from a real bug.
+    if (error) t.lastErrors = [...(t.lastErrors ?? []), redactError(error)].slice(-5)
+  }
   t.msSum += ms
   t.hist[BINS.findIndex((b) => ms <= b)]++
   scheduleFlush()
@@ -100,7 +113,7 @@ export function metricsSummary(days = 7, now = Date.now()) {
   const from = today(now - (days - 1) * 86_400_000)
   const out: Record<
     string,
-    { connects: number; tools: Record<string, { calls: number; errors: number; avgMs: number; p50Ms: number | null; p95Ms: number | null }>; prompts: Record<string, number> }
+    { connects: number; tools: Record<string, { calls: number; errors: number; avgMs: number; p50Ms: number | null; p95Ms: number | null; lastErrors?: string[] }>; prompts: Record<string, number> }
   > = {}
   for (const [d, eds] of Object.entries(store.days)) {
     if (d < from) continue
@@ -114,6 +127,7 @@ export function metricsSummary(days = 7, now = Date.now()) {
         agg.errors += t.errors
         agg.msSum += t.msSum
         t.hist.forEach((n, i) => (agg.hist[i] += n))
+        if (t.lastErrors?.length) agg.lastErrors = [...(agg.lastErrors ?? []), ...t.lastErrors].slice(-5)
       }
     }
   }
@@ -125,6 +139,7 @@ export function metricsSummary(days = 7, now = Date.now()) {
         avgMs: a.calls ? Math.round(a.msSum / a.calls) : 0,
         p50Ms: histPercentile(a.hist, 0.5),
         p95Ms: histPercentile(a.hist, 0.95),
+        ...(a.lastErrors ? { lastErrors: a.lastErrors } : {}),
       }
     }
   }

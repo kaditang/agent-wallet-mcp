@@ -61,7 +61,17 @@ export function createMcpServer(ctx: { userId?: string; readOnly?: boolean }) {
       }
     }
     // Anonymous aggregate only: tool name, success, latency (see metrics.ts).
-    recordToolCall(edition, r.params.name, !result?.isError, Date.now() - t0)
+    let err: string | undefined
+    if (result?.isError) {
+      const txt = String(result?.content?.[0]?.text ?? "")
+      try {
+        const j = JSON.parse(txt)
+        err = String(j.error ?? j.reason ?? txt)
+      } catch {
+        err = txt
+      }
+    }
+    recordToolCall(edition, r.params.name, !result?.isError, Date.now() - t0, err)
     return result
   })
   server.setRequestHandler(ListPromptsRequestSchema, async () => ({ prompts: listPrompts({ readOnly: ctx.readOnly }) }))

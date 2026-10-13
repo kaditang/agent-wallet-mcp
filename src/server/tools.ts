@@ -14,7 +14,7 @@ import { getPortfolio } from "../sol/portfolio.js"
 import { getRawTokenBalance } from "../sol/balances.js"
 import { YIELD_TOKENS, findYieldToken } from "../sol/yield-tokens.js"
 import { withRpcFallback } from "../sol/connection.js"
-import { getTimingSignalForXStock } from "../sol/timing-signal.js"
+import { getTimingSignalForXStock, prewarmTiming } from "../sol/timing-signal.js"
 import { getShareMultiplier, rawToShares, sharesToRaw, type ShareMultiplier } from "../sol/share-multiplier.js"
 import {
   REFERENCE_QUOTE_USD,
@@ -46,7 +46,25 @@ type XstockSafety = {
   reason?: string
   error?: string
 }
+// The gate is an external service (cold calls ~3s). A token's authenticity
+// doesn't change minute to minute and depeg/halt status is fine 60s stale, so
+// successful verdicts are cached briefly; failures are never cached.
+const SAFETY_TTL_MS = 60_000
+const safetyCache = new Map<string, { at: number; v: XstockSafety }>()
+
 async function checkXstockSafety(params: { symbol?: string; address?: string }): Promise<XstockSafety> {
+  const key = params.address ? `a:${params.address}` : `s:${(params.symbol ?? "").toUpperCase()}`
+  const hit = safetyCache.get(key)
+  if (hit && Date.now() - hit.at < SAFETY_TTL_MS) return hit.v
+  const v = await checkXstockSafetyUncached(params)
+  if (v.ok) {
+    if (safetyCache.size > 500) safetyCache.clear()
+    safetyCache.set(key, { at: Date.now(), v })
+  }
+  return v
+}
+
+async function checkXstockSafetyUncached(params: { symbol?: string; address?: string }): Promise<XstockSafety> {
   try {
     const q = params.address ? `address=${encodeURIComponent(params.address)}` : `symbol=${encodeURIComponent(params.symbol || "")}`
     const r = await fetch(`${XSTOCK_GATE_BASE}/api/xstock/health/preview?${q}`, {
@@ -391,6 +409,21 @@ export async function dispatch(
         true,
       )
     }
+    // Everything below that doesn't depend on the main quote starts NOW, in
+    // parallel (it used to run strictly in sequence: ~2.8s cold): the share
+    // multiplier, the $100 reference quote, and the timing inputs (underlying
+    // price + snapshot history, both cached/deduped in timing-signal.ts).
+    void prewarmTiming(ticker)
+    const refQuoteP =
+      amountNum >= SIZE_COST_MIN_USD
+        ? jupiterQuote({
+            inputMint: SOL_USDC,
+            outputMint: stock.mint,
+            amountAtomic: BigInt(REFERENCE_QUOTE_USD * 1_000_000),
+            slippageBps,
+          }).catch(() => null)
+        : Promise.resolve(null)
+    const multP: Promise<ShareMultiplier> = getShareMultiplier(stock.mint)
     const q = await jupiterQuote({
       inputMint: SOL_USDC,
       outputMint: stock.mint,
@@ -402,7 +435,7 @@ export async function dispatch(
     // (reinvested dividends, see share-multiplier.ts). These used to be reported
     // as shares directly, so a dividend payer's per-share price read high by its
     // multiplier — and that inflated price fed the timing signal below.
-    const mult: ShareMultiplier = await getShareMultiplier(stock.mint)
+    const mult: ShareMultiplier = await multP
     const outRaw = Number(q.outAmount) / 10 ** stock.decimals
     const outShares = rawToShares(outRaw, mult.value)
     const minOutShares = rawToShares(Number(q.otherAmountThreshold) / 10 ** stock.decimals, mult.value)
@@ -415,19 +448,10 @@ export async function dispatch(
     //     execution price let a big order's price impact masquerade as a
     //     premium (MCDx $50k: ~+1% → false "rich-wait").
     let refPrice: number | null = null
-    if (amountNum >= SIZE_COST_MIN_USD) {
-      try {
-        const rq = await jupiterQuote({
-          inputMint: SOL_USDC,
-          outputMint: stock.mint,
-          amountAtomic: BigInt(REFERENCE_QUOTE_USD * 1_000_000),
-          slippageBps,
-        })
-        const refShares = rawToShares(Number(rq.outAmount) / 10 ** stock.decimals, mult.value)
-        refPrice = refShares > 0 ? Number(rq.inAmount) / 1e6 / refShares : null
-      } catch {
-        refPrice = null
-      }
+    const rq = await refQuoteP
+    if (rq) {
+      const refShares = rawToShares(Number(rq.outAmount) / 10 ** stock.decimals, mult.value)
+      refPrice = refShares > 0 ? Number(rq.inAmount) / 1e6 / refShares : null
     }
     const sizeBps = refPrice != null ? extraCostBps(impliedPrice, refPrice) : null
     const sizeCost =

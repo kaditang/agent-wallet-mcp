@@ -164,10 +164,17 @@ export function parseSnapshotNdjson(
   return records
 }
 
-async function loadSnapshots(): Promise<SnapshotRecord[]> {
-  if (cache && Date.now() - cache.fetchedAt < CACHE_TTL_MS) {
-    return cache.records
-  }
+let snapshotsInflight: Promise<SnapshotRecord[]> | null = null
+
+function loadSnapshots(): Promise<SnapshotRecord[]> {
+  if (cache && Date.now() - cache.fetchedAt < CACHE_TTL_MS) return Promise.resolve(cache.records)
+  snapshotsInflight ??= loadSnapshotsUncached().finally(() => {
+    snapshotsInflight = null
+  })
+  return snapshotsInflight
+}
+
+async function loadSnapshotsUncached(): Promise<SnapshotRecord[]> {
   try {
     let r = await fetch(RAW_URL, {
       headers: { Range: `bytes=-${TAIL_BYTES}` },
@@ -359,14 +366,37 @@ async function yahooPrice(ticker: string): Promise<number | null> {
 const UNDERLYING_TTL_MS = 60_000
 const underlyingCache = new Map<string, { price: number | null; at: number }>()
 
+// Concurrent callers for the same ticker share one in-flight lookup (a quote
+// prewarms it while Jupiter is quoting, then reads it back).
+const underlyingInflight = new Map<string, Promise<number | null>>()
+
 export async function fetchUnderlyingUsd(ticker: string): Promise<number | null> {
   const key = ticker.toUpperCase()
   const hit = underlyingCache.get(key)
   if (hit && Date.now() - hit.at < UNDERLYING_TTL_MS) return hit.price
-  const price = (await stooqPrice(ticker)) ?? (await yahooPrice(ticker))
-  // Only cache successful lookups; let nulls retry on the next call.
-  if (price != null) underlyingCache.set(key, { price, at: Date.now() })
-  return price
+  let p = underlyingInflight.get(key)
+  if (!p) {
+    p = (async () => {
+      try {
+        const price = (await stooqPrice(ticker)) ?? (await yahooPrice(ticker))
+        // Only cache successful lookups; let nulls retry on the next call.
+        if (price != null) underlyingCache.set(key, { price, at: Date.now() })
+        return price
+      } finally {
+        underlyingInflight.delete(key)
+      }
+    })()
+    underlyingInflight.set(key, p)
+  }
+  return p
+}
+
+/** Start fetching a ticker's timing inputs early (fire-and-forget, never throws). */
+export function prewarmTiming(ticker: string): Promise<void> {
+  return Promise.all([fetchUnderlyingUsd(ticker), loadSnapshots()]).then(
+    () => undefined,
+    () => undefined,
+  )
 }
 
 /**
