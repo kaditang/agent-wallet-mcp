@@ -13,10 +13,28 @@ import {
   ListPromptsRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js"
+import { ZodError } from "zod"
 import { sanitizeError } from "./auth.js"
 import { getPrompt, listPrompts } from "./prompts.js"
 import { dispatch, getToolList } from "./tools.js"
 import { SERVER_VERSION } from "./version.js"
+
+/**
+ * Readable error for a failed tool call. Zod validation errors used to come
+ * back as their raw multi-line JSON dump; directory review wants actionable
+ * messages ("invalid argument targets.0.percent: expected number").
+ */
+export function toolErrorMessage(e: unknown): string {
+  if (e instanceof ZodError) {
+    const parts = e.issues.slice(0, 5).map((i) => {
+      const at = i.path.length ? i.path.join(".") : "arguments"
+      const got = (i as { received?: unknown }).received
+      return `${at}: ${i.message}${got === "undefined" ? " (missing)" : ""}`
+    })
+    return `invalid arguments — ${parts.join("; ")}`
+  }
+  return sanitizeError(e)
+}
 
 export function createMcpServer(ctx: { userId?: string; readOnly?: boolean }) {
   const server = new Server(
@@ -34,7 +52,7 @@ export function createMcpServer(ctx: { userId?: string; readOnly?: boolean }) {
       return await dispatch(r.params, ctx)
     } catch (e) {
       return {
-        content: [{ type: "text" as const, text: JSON.stringify({ ok: false, error: sanitizeError(e) }) }],
+        content: [{ type: "text" as const, text: JSON.stringify({ ok: false, error: toolErrorMessage(e) }) }],
         isError: true,
       }
     }

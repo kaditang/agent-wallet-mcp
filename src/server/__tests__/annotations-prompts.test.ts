@@ -104,3 +104,21 @@ describe("tool errors are MCP tool results, not protocol errors", () => {
     await client.close()
   })
 })
+
+describe("tool argument errors are readable", () => {
+  it("a zod failure becomes one actionable line, not a JSON dump", async () => {
+    const server = createMcpServer({ userId: "test" })
+    const client = new Client({ name: "t", version: "0" })
+    const [ct, st] = InMemoryTransport.createLinkedPair()
+    await Promise.all([server.connect(st), client.connect(ct)])
+    const r: any = await client.callTool({
+      name: "suggest_rebalance",
+      arguments: { wallet: "3yAgGoV4ZS17uyAu9ahrB7dERShg835mHzFUHXJbS8Sq", targets: [{ asset: "SPY", targetPct: 60 }] },
+    })
+    const err = JSON.parse(r.content[0].text).error as string
+    expect(r.isError).toBe(true)
+    expect(err).toMatch(/^invalid arguments — targets\.0\.percent:/)
+    expect(err).not.toMatch(/\n|\[\s*\{/)
+    await client.close()
+  })
+})
