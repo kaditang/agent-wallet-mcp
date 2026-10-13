@@ -8,8 +8,7 @@ transactions and falls under the directory's financial-transactions exclusion
 ---
 
 ## 1. Connection
-- Server URL: `https://mcp.autoyield.org/research`
-  (until the custom domain is live: `https://autoyield-api.fly.dev/research`)
+- Server URL: `https://mcp.autoyield.org/research` (live, TLS verified 2026-10-13)
 - Users connect to one URL (no per-user URLs).
 
 ## 2. Tools

@@ -34,7 +34,7 @@ https://autoyield-api.fly.dev/mcp
 
 Claude opens a page on autoyield.org where you sign one free, off-chain message in Phantom that names the app you're connecting. Standard OAuth 2.1 (PKCE, dynamic client registration), so any MCP client that supports remote connectors works the same way. You still sign every transaction yourself.
 
-**Read-only research edition (no sign-in):** `https://autoyield-api.fly.dev/research` — the 10 analysis tools (risk-adjusted yields, quotes with entry timing and size cost, token safety checks, portfolio checkups, rebalance suggestions, trade-history export) over public data. It never prepares or sends transactions; wallet addresses are public on-chain data, so no login is needed. This is the edition listed in the Claude connector directory. Use the `/mcp` URL above when you also want transactions prepared for you to sign.
+**Read-only research edition (no sign-in):** `https://mcp.autoyield.org/research` — the 10 analysis tools (risk-adjusted yields, quotes with entry timing and size cost, token safety checks, portfolio checkups, rebalance suggestions, trade-history export) over public data. It never prepares or sends transactions; wallet addresses are public on-chain data, so no login is needed. This is the edition listed in the Claude connector directory. Use the `/mcp` URL above when you also want transactions prepared for you to sign.
 
 **Local install (Claude Desktop / Cursor / any stdio MCP client):** add to `~/Library/Application Support/Claude/claude_desktop_config.json` (Claude Desktop on macOS) or your editor's MCP config:
 
