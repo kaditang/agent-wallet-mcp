@@ -161,7 +161,7 @@ export async function compareYields(opts?: {
       executable: !!native,
       riskLabel: native?.risk,
       note: !native
-        ? `Read-only in V1 — execution arrives in V1.5 for ${chain}.`
+        ? `Informational: autoyield does not prepare deposits on ${chain}.`
         : undefined,
       riskAdjustedApy: scored.riskAdjustedApy,
       riskScore: scored.riskScore,
