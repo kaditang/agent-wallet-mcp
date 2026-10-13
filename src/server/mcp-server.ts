@@ -16,6 +16,7 @@ import {
 import { ZodError } from "zod"
 import { sanitizeError } from "./auth.js"
 import { recordPrompt, recordToolCall } from "./metrics.js"
+import { OUTPUT_SCHEMAS, structuredFromText } from "./output-schemas.js"
 import { getPrompt, listPrompts } from "./prompts.js"
 import { dispatch, getToolList } from "./tools.js"
 import { SERVER_VERSION } from "./version.js"
@@ -72,6 +73,14 @@ export function createMcpServer(ctx: { userId?: string; readOnly?: boolean }) {
       }
     }
     recordToolCall(edition, r.params.name, !result?.isError, Date.now() - t0, err)
+    // Tools declare an outputSchema, so a successful result must also carry
+    // structuredContent (the SDK client rejects it otherwise). Every tool
+    // answers with one JSON object as text; mirror it. The text stays for
+    // clients that predate structured output.
+    if (!result?.isError && OUTPUT_SCHEMAS[r.params.name] && !result?.structuredContent) {
+      const txt = result?.content?.[0]?.text
+      result = { ...result, structuredContent: structuredFromText(txt) ?? { text: String(txt ?? "") } }
+    }
     return result
   })
   server.setRequestHandler(ListPromptsRequestSchema, async () => ({ prompts: listPrompts({ readOnly: ctx.readOnly }) }))

@@ -24,6 +24,7 @@ import {
 } from "../sol/size-cost.js"
 import { computeRebalance, type RebalanceTarget } from "../sol/rebalance.js"
 import { fetchTradeHistory, toCsv } from "../sol/history.js"
+import { OUTPUT_SCHEMAS } from "./output-schemas.js"
 
 // JSON.stringify support for the BigInts that Solana tx fields contain.
 ;(BigInt.prototype as any).toJSON = function () {
@@ -1331,7 +1332,9 @@ export const TOOL_ANNOTATIONS: Record<string, ToolAnnotations> = {
 }
 
 export function getToolList(opts?: { readOnly?: boolean }) {
-  return TOOLS.filter((t) => !opts?.readOnly || TOOL_ANNOTATIONS[t.name]?.readOnlyHint).map((t) =>
-    TOOL_ANNOTATIONS[t.name] ? { ...t, annotations: TOOL_ANNOTATIONS[t.name] } : t,
-  )
+  return TOOLS.filter((t) => !opts?.readOnly || TOOL_ANNOTATIONS[t.name]?.readOnlyHint).map((t) => ({
+    ...t,
+    ...(TOOL_ANNOTATIONS[t.name] ? { annotations: TOOL_ANNOTATIONS[t.name] } : {}),
+    ...(OUTPUT_SCHEMAS[t.name] ? { outputSchema: OUTPUT_SCHEMAS[t.name] } : {}),
+  }))
 }
