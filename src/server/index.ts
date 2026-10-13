@@ -33,6 +33,7 @@ import {
   startAuthorization,
 } from "./oauth.js"
 import { createMcpServer } from "./mcp-server.js"
+import { flushMetricsSync, metricsSummary, recordConnect } from "./metrics.js"
 import { preflightSignedTx, PREFLIGHT_ENFORCE } from "../sol/preflight.js"
 import { captureMessage } from "./sentry.js"
 import { getBalances } from "../sol/balances.js"
@@ -44,7 +45,7 @@ import {
   updateRebuiltTx,
   withBroadcastLock,
 } from "../sol/sign-store.js"
-import { randomUUID } from "node:crypto"
+import { randomUUID, timingSafeEqual } from "node:crypto"
 import { isIP } from "node:net"
 import { withRpcFallback } from "../sol/connection.js"
 import { VersionedTransaction } from "@solana/web3.js"
@@ -874,6 +875,9 @@ async function serveMcp(
   route: string,
 ) {
   try {
+    // Count MCP handshakes (= connections), per edition. Bodies may be batches.
+    const msgs = Array.isArray(req.body) ? req.body : [req.body]
+    if (msgs.some((m: any) => m?.method === "initialize")) recordConnect(ctx.readOnly ? "research" : "full")
     const server = createMcpServer(ctx)
 
     const transport = new StreamableHTTPServerTransport({
@@ -895,6 +899,21 @@ async function serveMcp(
 app.post("/mcp", mcpIpLimiter, requireAuth, mcpUserLimiter, (req, res) =>
   serveMcp(req, res, { userId: req.userId }, "/mcp"),
 )
+
+// Aggregate usage metrics (no wallets, IPs or arguments — see metrics.ts).
+// Token-protected; disabled (404) unless METRICS_TOKEN is set.
+app.get("/metrics", readLimiter, (req, res) => {
+  const want = process.env.METRICS_TOKEN
+  const got = (req.header("authorization") ?? "").replace(/^Bearer\s+/i, "")
+  const ok =
+    !!want && got.length === want.length && timingSafeEqual(Buffer.from(got), Buffer.from(want))
+  if (!ok) {
+    res.status(404).json({ error: "not_found" })
+    return
+  }
+  const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 90)
+  res.set("Cache-Control", "no-store").json(metricsSummary(days))
+})
 
 // Research edition — the Claude connector-directory listing. Read-only tools
 // over public data only (wallet addresses are public on-chain), so no login:
@@ -967,6 +986,7 @@ if (process.env.NODE_ENV !== "test") {
   const shutdown = async (signal: string) => {
     console.log(`[shutdown] ${signal} received, flushing...`)
     flushAuditSync()
+    flushMetricsSync()
     await flushSentry(2000)
     server.close(() => process.exit(0))
     // Hard exit if close() hangs past 5s (existing connections, etc.)

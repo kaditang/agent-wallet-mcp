@@ -11,6 +11,8 @@ process.env.SIGN_STORE_PATH = path.join(TMP_ROOT, "sign-store.json")
 process.env.AUDIT_LOG_PATH = path.join(TMP_ROOT, "audit.log")
 process.env.AUTH_STORE_PATH = path.join(TMP_ROOT, "api-keys.json")
 process.env.OAUTH_CLIENTS_PATH = path.join(TMP_ROOT, "oauth-clients.json")
+process.env.METRICS_PATH = path.join(TMP_ROOT, "metrics.json")
+process.env.METRICS_TOKEN = "test-metrics-token"
 // Many full OAuth flows run against one in-process app from one IP.
 process.env.RATE_LIMIT_SCALE = "20"
 process.env.DEMO_TOKENS = "testtok:testuser"

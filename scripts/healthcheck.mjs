@@ -15,6 +15,22 @@
 // only real breakage (service down, version drift) exits nonzero.
 
 const API = process.env.AUTOYIELD_API ?? "https://autoyield-api.fly.dev"
+// The directory-listed research edition lives on the custom domain.
+const RESEARCH_API = process.env.AUTOYIELD_RESEARCH_API ?? "https://mcp.autoyield.org"
+
+// METRICS_TOKEN from the environment or the repo's gitignored .env.
+async function metricsToken() {
+  if (process.env.METRICS_TOKEN) return process.env.METRICS_TOKEN
+  try {
+    const fs = await import("node:fs")
+    const url = await import("node:url")
+    const here = url.fileURLToPath(new URL(".", import.meta.url))
+    const env = fs.readFileSync(`${here}/../.env`, "utf8")
+    return /^METRICS_TOKEN=(.+)$/m.exec(env)?.[1]?.trim()
+  } catch {
+    return undefined
+  }
+}
 const RAW =
   "https://raw.githubusercontent.com/kaditang/agent-wallet-mcp/main/research/snapshots/microstructure.ndjson"
 const NPM = "https://registry.npmjs.org/@kaditang/agent-wallet-mcp/latest"
@@ -65,7 +81,7 @@ async function checkMcp() {
 async function checkResearch() {
   try {
     const r = await withTimeout(
-      fetch(`${API}/research`, {
+      fetch(`${RESEARCH_API}/research`, {
         method: "POST",
         headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
         body: JSON.stringify({
@@ -155,6 +171,30 @@ async function checkCollector(name, file, maxAgeH) {
   }
 }
 
+// Anonymous usage over the last 7 days (needs METRICS_TOKEN). Informational:
+// never fails the run, printed after the checks.
+async function usageReport() {
+  const token = await metricsToken()
+  if (!token) return ["(usage: set METRICS_TOKEN in .env to see tool-call metrics)"]
+  try {
+    const r = await withTimeout(fetch(`${API}/metrics?days=7`, { headers: { authorization: `Bearer ${token}` } }), 8000, "metrics")
+    if (!r.ok) return [`(usage: /metrics HTTP ${r.status})`]
+    const m = await r.json()
+    const lines = [`usage ${m.from} → ${m.to}:`]
+    for (const [ed, v] of Object.entries(m.editions)) {
+      const calls = Object.values(v.tools).reduce((a, t) => a + t.calls, 0)
+      lines.push(`  ${ed.padEnd(8)} connections ${v.connects}, tool calls ${calls}`)
+      for (const [name, t] of Object.entries(v.tools).sort((a, b) => b[1].calls - a[1].calls)) {
+        lines.push(`    ${name.padEnd(22)} ${String(t.calls).padStart(5)} calls  ${String(t.errors).padStart(3)} err  p50≤${t.p50Ms}ms p95≤${t.p95Ms}ms`)
+      }
+    }
+    if (lines.length === 1) lines.push("  no traffic recorded yet")
+    return lines
+  } catch (e) {
+    return [`(usage: ${e.message})`]
+  }
+}
+
 const run = async () => {
   await Promise.all([
     checkHealthz(),
@@ -167,6 +207,7 @@ const run = async () => {
   ])
   const icon = { PASS: "✅", WARN: "⚠️ ", FAIL: "❌" }
   for (const r of results) console.log(`${icon[r.status]} ${r.name.padEnd(20)} ${r.detail}`)
+  for (const l of await usageReport()) console.log(l)
   const fails = results.filter((r) => r.status === "FAIL")
   const warns = results.filter((r) => r.status === "WARN")
   console.log(

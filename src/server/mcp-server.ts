@@ -15,6 +15,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js"
 import { ZodError } from "zod"
 import { sanitizeError } from "./auth.js"
+import { recordPrompt, recordToolCall } from "./metrics.js"
 import { getPrompt, listPrompts } from "./prompts.js"
 import { dispatch, getToolList } from "./tools.js"
 import { SERVER_VERSION } from "./version.js"
@@ -47,19 +48,27 @@ export function createMcpServer(ctx: { userId?: string; readOnly?: boolean }) {
   // whole nginx 503 HTML page. MCP wants tool failures as a result with
   // isError, so the model sees a short, sanitized reason and can retry or
   // explain. Prompts keep protocol errors (InvalidParams is correct there).
+  const edition = ctx.readOnly ? "research" : "full"
   server.setRequestHandler(CallToolRequestSchema, async (r) => {
+    const t0 = Date.now()
+    let result: any
     try {
-      return await dispatch(r.params, ctx)
+      result = await dispatch(r.params, ctx)
     } catch (e) {
-      return {
+      result = {
         content: [{ type: "text" as const, text: JSON.stringify({ ok: false, error: toolErrorMessage(e) }) }],
         isError: true,
       }
     }
+    // Anonymous aggregate only: tool name, success, latency (see metrics.ts).
+    recordToolCall(edition, r.params.name, !result?.isError, Date.now() - t0)
+    return result
   })
   server.setRequestHandler(ListPromptsRequestSchema, async () => ({ prompts: listPrompts({ readOnly: ctx.readOnly }) }))
-  server.setRequestHandler(GetPromptRequestSchema, async (r) =>
-    getPrompt(r.params.name, (r.params.arguments ?? {}) as Record<string, string>, { readOnly: ctx.readOnly }),
-  )
+  server.setRequestHandler(GetPromptRequestSchema, async (r) => {
+    const out = getPrompt(r.params.name, (r.params.arguments ?? {}) as Record<string, string>, { readOnly: ctx.readOnly })
+    recordPrompt(edition, r.params.name)
+    return out
+  })
   return server
 }

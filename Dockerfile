@@ -36,6 +36,7 @@ ENV SIGN_STORE_PATH=/data/sign-store.json
 ENV AUDIT_LOG_PATH=/data/audit.log
 ENV AUTH_STORE_PATH=/data/api-keys.json
 ENV OAUTH_CLIENTS_PATH=/data/oauth-clients.json
+ENV METRICS_PATH=/data/metrics.json
 
 EXPOSE 3030
 CMD ["node", "dist/server/index.js"]

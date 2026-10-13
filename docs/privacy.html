@@ -73,6 +73,10 @@
         events: API keys issued or revoked, failed sign-ins, transactions
         prepared and broadcast (wallet address, asset, amount, IP address,
         time).</li>
+      <li><b>Anonymous usage counters.</b> Per day: how many times each tool
+        or prompt was used, whether the call succeeded, how long it took, and
+        how many connections were opened. No wallet address, IP address,
+        arguments or results are recorded with them. Kept 90 days.</li>
       <li><b>Request logs and error reports.</b> Our host (Fly.io) logs
         request paths, IP addresses and errors. Server errors are reported to
         Sentry with cookies, headers, request bodies and query strings
@@ -118,6 +122,7 @@
     <h2>Retention</h2>
     <ul>
       <li>Rate-limit counters: about one minute, in memory.</li>
+      <li>Anonymous usage counters: 90 days.</li>
       <li>Pending authorizations / authorization codes: 10 / 5 minutes.</li>
       <li>Prepared unsigned transactions: up to 24 hours.</li>
       <li>Host request logs: up to 7 days, unless needed for a security
