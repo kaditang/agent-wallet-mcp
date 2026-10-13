@@ -13,6 +13,7 @@ import {
   ListPromptsRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js"
+import { sanitizeError } from "./auth.js"
 import { getPrompt, listPrompts } from "./prompts.js"
 import { dispatch, getToolList } from "./tools.js"
 import { SERVER_VERSION } from "./version.js"
@@ -23,7 +24,21 @@ export function createMcpServer(ctx: { userId?: string }) {
     { capabilities: { tools: {}, prompts: {} } },
   )
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: getToolList() as any }))
-  server.setRequestHandler(CallToolRequestSchema, async (r) => dispatch(r.params, ctx))
+  // A tool that THROWS (upstream outage, bad args failing zod, …) used to
+  // surface as a JSON-RPC protocol error carrying the raw message — once a
+  // whole nginx 503 HTML page. MCP wants tool failures as a result with
+  // isError, so the model sees a short, sanitized reason and can retry or
+  // explain. Prompts keep protocol errors (InvalidParams is correct there).
+  server.setRequestHandler(CallToolRequestSchema, async (r) => {
+    try {
+      return await dispatch(r.params, ctx)
+    } catch (e) {
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify({ ok: false, error: sanitizeError(e) }) }],
+        isError: true,
+      }
+    }
+  })
   server.setRequestHandler(ListPromptsRequestSchema, async () => ({ prompts: listPrompts() }))
   server.setRequestHandler(GetPromptRequestSchema, async (r) =>
     getPrompt(r.params.name, (r.params.arguments ?? {}) as Record<string, string>),

@@ -2,7 +2,60 @@
 // Docs: https://station.jup.ag/docs/swap-api
 // We only use HTTP for now (no on-chain submission yet).
 
-const JUP_BASE = "https://lite-api.jup.ag/swap/v1"
+// Host failover. lite-api.jup.ag's quote endpoint started failing whole
+// collector runs with nginx 503s (2026-10-11 ×2, 2026-10-13 — every quote
+// null) while api.jup.ag served the same request fine; both hosts build swap
+// txs. Try api.jup.ag first (optional JUP_API_KEY → x-api-key, for when it
+// stops serving keyless traffic), then lite-api. Fail over only on errors a
+// different host could fix (network/timeout, 5xx, 429, 401/403) — a 400 means
+// the request itself is bad and would fail everywhere.
+const JUP_HOSTS = ["https://api.jup.ag", "https://lite-api.jup.ag"]
+
+function jupHeaders(host: string, extra?: Record<string, string>): Record<string, string> {
+  const key = process.env.JUP_API_KEY
+  return { ...(extra ?? {}), ...(key && host === "https://api.jup.ag" ? { "x-api-key": key } : {}) }
+}
+
+/** PURE: should a different Jupiter host be tried after this HTTP status? */
+export function isJupFailoverStatus(status: number): boolean {
+  return status >= 500 || status === 429 || status === 401 || status === 403
+}
+
+/** PURE: short, HTML-free error text (an nginx 503 page used to reach the AI verbatim). */
+export function jupErrorText(status: number, body: string): string {
+  const plain = body.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim()
+  return `${status}${plain ? ` ${plain.slice(0, 160)}` : ""}`
+}
+
+/**
+ * Run `path` against each host in order. Exported for the token-search client.
+ * Throws the LAST error if every host fails.
+ */
+export async function jupFetch(
+  path: string,
+  init: { method?: string; body?: string; headers?: Record<string, string> } = {},
+  label = "jupiter",
+): Promise<Response> {
+  let lastErr: Error = new Error(`${label}: no hosts`)
+  for (const host of JUP_HOSTS) {
+    try {
+      const r = await fetch(`${host}${path}`, {
+        method: init.method ?? "GET",
+        body: init.body,
+        headers: jupHeaders(host, init.headers),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      })
+      if (r.ok) return r
+      const err = new Error(`${label} ${jupErrorText(r.status, await r.text())}`)
+      if (!isJupFailoverStatus(r.status)) throw Object.assign(err, { final: true })
+      lastErr = err
+    } catch (e) {
+      if ((e as { final?: boolean }).final) throw e
+      lastErr = e instanceof Error ? e : new Error(String(e))
+    }
+  }
+  throw lastErr
+}
 
 // All external HTTP calls must time out — a stuck Jupiter connection would
 // otherwise pin an Express request slot and snowball at peak load.
@@ -49,13 +102,13 @@ export async function jupiterQuote(opts: {
   amountAtomic: bigint
   slippageBps?: number
 }): Promise<JupQuote> {
-  const url = new URL(`${JUP_BASE}/quote`)
-  url.searchParams.set("inputMint", opts.inputMint)
-  url.searchParams.set("outputMint", opts.outputMint)
-  url.searchParams.set("amount", opts.amountAtomic.toString())
-  url.searchParams.set("slippageBps", String(opts.slippageBps ?? 50))
-  const r = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
-  if (!r.ok) throw new Error(`jupiter quote ${r.status}: ${await r.text()}`)
+  const qs = new URLSearchParams({
+    inputMint: opts.inputMint,
+    outputMint: opts.outputMint,
+    amount: opts.amountAtomic.toString(),
+    slippageBps: String(opts.slippageBps ?? 50),
+  })
+  const r = await jupFetch(`/swap/v1/quote?${qs}`, {}, "jupiter quote")
   return (await r.json()) as JupQuote
 }
 
@@ -78,10 +131,9 @@ export async function jupiterSwapTx(opts: {
   /** Auto-create destination ATA if missing (default true). */
   asLegacyTransaction?: boolean
 }): Promise<JupSwapResult> {
-  const r = await fetch(`${JUP_BASE}/swap`, {
+  const r = await jupFetch("/swap/v1/swap", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     body: JSON.stringify({
       quoteResponse: opts.quote,
       userPublicKey: opts.userPublicKey,
@@ -93,8 +145,7 @@ export async function jupiterSwapTx(opts: {
       // even under moderate congestion.
       prioritizationFeeLamports: 500000,
     }),
-  })
-  if (!r.ok) throw new Error(`jupiter swap ${r.status}: ${await r.text()}`)
+  }, "jupiter swap")
   const j = (await r.json()) as {
     swapTransaction: string
     lastValidBlockHeight: number

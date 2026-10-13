@@ -16,6 +16,12 @@ import { YIELD_TOKENS, findYieldToken } from "../sol/yield-tokens.js"
 import { withRpcFallback } from "../sol/connection.js"
 import { getTimingSignalForXStock } from "../sol/timing-signal.js"
 import { getShareMultiplier, rawToShares, sharesToRaw, type ShareMultiplier } from "../sol/share-multiplier.js"
+import {
+  REFERENCE_QUOTE_USD,
+  SIZE_COST_MIN_USD,
+  assessSizeCost,
+  extraCostBps,
+} from "../sol/size-cost.js"
 import { computeRebalance, type RebalanceTarget } from "../sol/rebalance.js"
 import { fetchTradeHistory, toCsv } from "../sol/history.js"
 
@@ -108,7 +114,7 @@ const TOOLS = [
   {
     name: "quote_tokenized_stock",
     description:
-      "Live Jupiter quote for buying a Backed xStock with USDC on Solana. Returns expected output, price impact, route, AND a best-entry timing signal (live premium vs the underlying NYSE price, z-scored against a same-market-regime trailing baseline: good-entry / fair / rich-wait). Surface the timing note to the user. READ ONLY — no on-chain action.",
+      "Live Jupiter quote for buying a Backed xStock with USDC on Solana. Returns expected output, price impact, route, a sizeCost block for orders ≥ $200 (how much more per share this size costs than a $100 buy — surface it when moderate/high), AND a best-entry timing signal (live premium vs the underlying NYSE price, z-scored against a same-market-regime trailing baseline: good-entry / fair / rich-wait). Surface the timing note to the user. READ ONLY — no on-chain action.",
     inputSchema: {
       type: "object",
       properties: {
@@ -388,14 +394,44 @@ export async function dispatch(
     const minOutShares = rawToShares(Number(q.otherAmountThreshold) / 10 ** stock.decimals, mult.value)
     const impliedPrice = outShares > 0 ? inUsdc / outShares : 0
 
+    // Reference quote at a small size (best-effort). Two uses:
+    //  1. sizeCost — what THIS size costs vs a small buy (pool depth).
+    //  2. timing — the snapshot history is built from impact-free reference
+    //     prices, so the live premium must be too. Using the user's own
+    //     execution price let a big order's price impact masquerade as a
+    //     premium (MCDx $50k: ~+1% → false "rich-wait").
+    let refPrice: number | null = null
+    if (amountNum >= SIZE_COST_MIN_USD) {
+      try {
+        const rq = await jupiterQuote({
+          inputMint: SOL_USDC,
+          outputMint: stock.mint,
+          amountAtomic: BigInt(REFERENCE_QUOTE_USD * 1_000_000),
+          slippageBps,
+        })
+        const refShares = rawToShares(Number(rq.outAmount) / 10 ** stock.decimals, mult.value)
+        refPrice = refShares > 0 ? Number(rq.inAmount) / 1e6 / refShares : null
+      } catch {
+        refPrice = null
+      }
+    }
+    const sizeBps = refPrice != null ? extraCostBps(impliedPrice, refPrice) : null
+    const sizeCost =
+      sizeBps != null
+        ? { referenceUsd: REFERENCE_QUOTE_USD, extraCostBps: sizeBps, ...assessSizeCost(sizeBps, inUsdc) }
+        : undefined
+    // Small orders: the quote itself is ~impact-free, so it is the reference.
+    const timingPrice = refPrice ?? (amountNum < SIZE_COST_MIN_USD ? impliedPrice : null)
+
     // Entry-timing signal: compare the live xStock premium vs underlying to
     // its own recent history. Best-effort — never block the quote on it.
     const timing =
       // Unreadable multiplier → impliedPrice is per RAW token for a dividend
       // payer, which against the per-share history is exactly the false
       // "unusually HIGH" (SPYx z=+6.7) this fix removes. Skip rather than lie.
-      impliedPrice > 0 && mult.status !== "unavailable"
-        ? await getTimingSignalForXStock(ticker, impliedPrice).catch(() => null)
+      // No impact-free price for a large order (ref quote failed) → skip too.
+      timingPrice != null && timingPrice > 0 && mult.status !== "unavailable"
+        ? await getTimingSignalForXStock(ticker, timingPrice).catch(() => null)
         : null
 
     return text(
@@ -419,11 +455,13 @@ export async function dispatch(
             routes: q.routePlan.map((r) => ({ amm: r.swapInfo.label, percent: r.percent })),
           },
           liquiditySnapshotUsd: stock.liquidityUsd,
+          sizeCost,
           timing: timing
             ? {
                 underlyingUsd: timing.underlyingUsd,
                 premiumPct: timing.currentPremiumPct,
                 signal: timing.signal,
+                confidence: timing.confidence ?? "normal",
                 zScore: timing.zScore,
                 note: timing.note,
               }
@@ -483,16 +521,31 @@ export async function dispatch(
       )
     ).filter((v): v is NonNullable<typeof v> => v !== null)
 
+    // Weekend gap: rich/cheap readings are low-confidence (see isWeekendGap) —
+    // don't turn noise into "act now" notes; say once that they're held back.
+    let heldBackForWeekend = 0
     for (const sig of xstockTiming) {
+      if (sig.confidence === "low" && (sig.signal === "rich-wait" || sig.signal === "good-entry")) {
+        heldBackForWeekend++
+        continue
+      }
       if (sig.signal === "rich-wait") {
+        // Rich = the xStock trades ABOVE the real stock: selling captures that
+        // markup; adding pays it. (The old wording had this backwards.)
         notes.push(
-          `${sig.symbol} you hold is at a +${sig.currentPremiumPct}% premium vs ${sig.ticker} (rich) — relatively expensive if you're considering selling, good if you'd be buying back later.`,
+          `${sig.symbol} you hold is at a +${sig.currentPremiumPct}% premium vs ${sig.ticker} (rich) — a relatively good level if you're thinking of selling, an expensive one to add more.`,
         )
       } else if (sig.signal === "good-entry") {
         notes.push(
           `${sig.symbol} is at ${sig.currentPremiumPct}% premium vs ${sig.ticker} (cheap) — relatively good level if you're adding.`,
         )
       }
+    }
+
+    if (heldBackForWeekend > 0) {
+      notes.push(
+        `${heldBackForWeekend} rich/cheap timing reading(s) held back: it's the weekend, when xStock premiums barely predict Monday's open (~54% in our data). Check again after US markets reopen.`,
+      )
     }
 
     // Idle USDC nudge.

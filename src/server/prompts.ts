@@ -51,7 +51,7 @@ const PROMPTS: PromptDef[] = [
     render: (a) =>
       `I want to buy about ${a.amountUsdc} USDC of ${a.ticker.toUpperCase()} as a tokenized stock, from wallet ${a.wallet}.\n\n` +
       `1. Call check_xstock_safety for ${a.ticker.toUpperCase()}. If it says avoid, stop and explain why.\n` +
-      `2. Call quote_tokenized_stock for ${a.amountUsdc} USDC. Tell me the shares I'd get, the price impact, and what the entry-timing signal says (good entry / fair / rich).\n` +
+      `2. Call quote_tokenized_stock for ${a.amountUsdc} USDC. Tell me the shares I'd get, the price impact, the sizeCost note if it is moderate or high, and what the entry-timing signal says (good entry / fair / rich — and whether its confidence is low).\n` +
       `3. Summarize in 3-4 lines and ask me whether to proceed.\n` +
       `4. Only if I confirm: call build_buy_xstock_tx, give me the sign link, and after I say I signed, check it with track_tx.\n\n` +
       RULES,

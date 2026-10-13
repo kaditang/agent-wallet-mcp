@@ -59,6 +59,8 @@ export type TimingSignal = {
   /** Standard deviations the current premium sits above (+) / below (-) the trailing mean. */
   zScore: number | null
   signal: TimingSignalKind
+  /** "low" during the weekend gap — see isWeekendGap. Absent = normal. */
+  confidence?: "normal" | "low"
   note: string
 }
 
@@ -227,6 +229,26 @@ export function usMarketRegime(now: Date = new Date()): MarketRegime {
   return mins >= 9 * 60 + 30 && mins < 16 * 60 ? "open" : "closed"
 }
 
+/**
+ * PURE: is `now` in the weekend gap — Saturday, or Sunday before 18:00 ET
+ * (when CME equity futures reopen)? In that window no traditional venue is
+ * pricing US stocks, and the xStock premium barely predicts the Monday-open
+ * move: 19 weekends (2026-05→10), corr 0.12, direction right only 54% when
+ * |premium| >= 0.5% — vs 73% from the last pre-open snapshot. Exactly the
+ * window that was studied; Friday evening is deliberately NOT included.
+ */
+export function isWeekendGap(now: Date = new Date()): boolean {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short",
+    hour: "numeric",
+    hour12: false,
+  }).formatToParts(now)
+  const wd = parts.find((p) => p.type === "weekday")?.value
+  const hour = Number(parts.find((p) => p.type === "hour")?.value) % 24
+  return wd === "Sat" || (wd === "Sun" && hour < 18)
+}
+
 function regimeOf(rec: SnapshotRecord): MarketRegime {
   return rec.marketState === "open" ? "open" : "closed"
 }
@@ -285,6 +307,11 @@ export async function getTimingSignal(
       : history
   const signal = computeTimingSignal(ticker, current, baseline)
   signal.note += ` [${baselineDesc}${regime === "closed" ? "; US market closed now — premium is vs last close" : ""}]`
+  if (isWeekendGap()) {
+    signal.confidence = "low"
+    signal.note +=
+      " Weekend: in our data (19 weekends) the weekend premium predicted Monday's open direction only ~54% of the time — treat this signal as low-confidence until markets reopen."
+  }
   return signal
 }
 

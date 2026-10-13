@@ -1,8 +1,8 @@
+import { jupFetch } from "./jupiter.js"
 // Jupiter token metadata helpers — live liquidity + verification flag.
 // Cached for 5 minutes per mint so list_xstocks / quote tools don't hammer
 // Jupiter's search endpoint.
 
-const SEARCH_BASE = "https://lite-api.jup.ag/tokens/v2/search"
 const TTL_MS = 5 * 60 * 1000
 
 type CacheEntry = {
@@ -36,11 +36,8 @@ export async function getLiveTokenMeta(mint: string): Promise<LiveTokenMeta> {
     }
   }
   try {
-    const r = await fetch(
-      `${SEARCH_BASE}?query=${encodeURIComponent(mint)}&limit=3`,
-      { signal: AbortSignal.timeout(8000) },
-    )
-    if (!r.ok) throw new Error(`jupiter search ${r.status}`)
+    // Same host failover as quotes/swaps (see jupFetch).
+    const r = await jupFetch(`/tokens/v2/search?query=${encodeURIComponent(mint)}&limit=3`, {}, "jupiter search")
     const arr = (await r.json()) as Array<{
       id: string
       liquidity?: number

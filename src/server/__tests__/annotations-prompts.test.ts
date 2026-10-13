@@ -90,3 +90,17 @@ describe("createMcpServer over the real MCP protocol", () => {
     await client.close()
   })
 })
+
+describe("tool errors are MCP tool results, not protocol errors", () => {
+  it("a throwing tool comes back as isError with a short message", async () => {
+    const server = createMcpServer({ userId: "test" })
+    const client = new Client({ name: "t", version: "0" })
+    const [ct, st] = InMemoryTransport.createLinkedPair()
+    await Promise.all([server.connect(st), client.connect(ct)])
+    // zod rejects the missing ticker → dispatch throws
+    const r: any = await client.callTool({ name: "quote_tokenized_stock", arguments: { amountUsdc: "10" } })
+    expect(r.isError).toBe(true)
+    expect(JSON.parse(r.content[0].text).ok).toBe(false)
+    await client.close()
+  })
+})
