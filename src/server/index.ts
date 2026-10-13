@@ -879,6 +879,8 @@ app.get("/sol/balances", readLimiter, async (req, res) => {
 
 // MCP transport. Stateless: V1 service tools take wallet as an arg, no per-user state.
 // Shared stateless Streamable-HTTP handler for both MCP editions.
+const MAX_BATCH = 10
+
 async function serveMcp(
   req: express.Request,
   res: express.Response,
@@ -888,6 +890,12 @@ async function serveMcp(
   try {
     // Count MCP handshakes (= connections), per edition. Bodies may be batches.
     const msgs = Array.isArray(req.body) ? req.body : [req.body]
+    // Rate limiters count HTTP requests; a JSON-RPC batch packs many calls
+    // into one. Clients send single messages in practice — cap batches.
+    if (msgs.length > MAX_BATCH) {
+      res.status(400).json({ jsonrpc: "2.0", id: null, error: { code: -32600, message: `batch too large (max ${MAX_BATCH})` } })
+      return
+    }
     if (msgs.some((m: any) => m?.method === "initialize")) recordConnect(ctx.readOnly ? "research" : "full")
     const server = createMcpServer(ctx)
 
@@ -916,8 +924,9 @@ app.post("/mcp", mcpIpLimiter, requireAuth, mcpUserLimiter, (req, res) =>
 app.get("/metrics", readLimiter, (req, res) => {
   const want = process.env.METRICS_TOKEN
   const got = (req.header("authorization") ?? "").replace(/^Bearer\s+/i, "")
-  const ok =
-    !!want && got.length === want.length && timingSafeEqual(Buffer.from(got), Buffer.from(want))
+  const a = Buffer.from(got)
+  const b = Buffer.from(want ?? "")
+  const ok = !!want && a.length === b.length && timingSafeEqual(a, b)
   if (!ok) {
     res.status(404).json({ error: "not_found" })
     return

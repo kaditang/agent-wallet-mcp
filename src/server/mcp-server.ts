@@ -17,6 +17,7 @@ import { ZodError } from "zod"
 import { sanitizeError } from "./auth.js"
 import { recordPrompt, recordToolCall } from "./metrics.js"
 import { OUTPUT_SCHEMAS, structuredFromText } from "./output-schemas.js"
+import { takeBudget } from "./budget.js"
 import { getPrompt, listPrompts } from "./prompts.js"
 import { dispatch, getToolList } from "./tools.js"
 import { SERVER_VERSION } from "./version.js"
@@ -38,6 +39,8 @@ export function toolErrorMessage(e: unknown): string {
   return sanitizeError(e)
 }
 
+const KNOWN_TOOLS = new Set<string>(getToolList().map((t) => t.name))
+
 export function createMcpServer(ctx: { userId?: string; readOnly?: boolean }) {
   const server = new Server(
     { name: "agent-wallet", version: SERVER_VERSION },
@@ -54,7 +57,12 @@ export function createMcpServer(ctx: { userId?: string; readOnly?: boolean }) {
     const t0 = Date.now()
     let result: any
     try {
-      result = await dispatch(r.params, ctx)
+      result = takeBudget(edition, r.params.name)
+        ? await dispatch(r.params, ctx)
+        : {
+            content: [{ type: "text" as const, text: JSON.stringify({ ok: false, error: `${r.params.name} is busy right now (shared per-minute limit). Try again in a minute.` }) }],
+            isError: true,
+          }
     } catch (e) {
       result = {
         content: [{ type: "text" as const, text: JSON.stringify({ ok: false, error: toolErrorMessage(e) }) }],
@@ -72,7 +80,9 @@ export function createMcpServer(ctx: { userId?: string; readOnly?: boolean }) {
         err = txt
       }
     }
-    recordToolCall(edition, r.params.name, !result?.isError, Date.now() - t0, err)
+    // Only known tool names become metric keys — arbitrary names from a caller
+    // would otherwise grow the persisted metrics store without bound.
+    recordToolCall(edition, KNOWN_TOOLS.has(r.params.name) ? r.params.name : "_unknown", !result?.isError, Date.now() - t0, err)
     // Tools declare an outputSchema, so a successful result must also carry
     // structuredContent (the SDK client rejects it otherwise). Every tool
     // answers with one JSON object as text; mirror it. The text stays for
