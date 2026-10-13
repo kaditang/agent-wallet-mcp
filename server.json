@@ -7,12 +7,12 @@
     "source": "github"
   },
   "websiteUrl": "https://autoyield.org",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@kaditang/agent-wallet-mcp",
-      "version": "0.3.6",
+      "version": "0.3.7",
       "transport": {
         "type": "stdio"
       },
