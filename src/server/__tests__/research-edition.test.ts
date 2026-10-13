@@ -31,6 +31,13 @@ describe("read-only research edition", () => {
     await c.close()
   })
 
+  it("serves no OAuth discovery on the research-only host (directories mislabel it otherwise)", async () => {
+    for (const path of ["/.well-known/oauth-protected-resource", "/.well-known/oauth-authorization-server"]) {
+      expect((await request(app).get(path).set("Host", "mcp.autoyield.org")).status).toBe(404)
+      expect((await request(app).get(path)).status).toBe(200)
+    }
+  })
+
   it("full edition still has all 14", () => {
     expect(getToolList().length).toBe(14)
   })

@@ -210,12 +210,23 @@ const sendOAuthError = (res: express.Response, e: unknown) => {
     reply500(res, e, { route: "oauth" })
   }
 }
-const prmHandler = (_req: express.Request, res: express.Response) => {
+// Hosts that front only the no-auth research edition (mcp.autoyield.org/research).
+// OAuth discovery there would point at PUBLIC_ORIGIN's /mcp anyway, and
+// directories (Smithery) probing the root well-known doc then mislabel the
+// research edition "OAuth required". Serve no OAuth metadata on these hosts.
+const RESEARCH_ONLY_HOSTS = new Set(
+  (process.env.RESEARCH_ONLY_HOSTS ?? "mcp.autoyield.org").split(",").map((h) => h.trim().toLowerCase()).filter(Boolean),
+)
+const oauthDiscoveryHidden = (req: express.Request) => RESEARCH_ONLY_HOSTS.has(req.hostname.toLowerCase())
+
+const prmHandler = (req: express.Request, res: express.Response) => {
+  if (oauthDiscoveryHidden(req)) return res.status(404).json({ error: "not_found" })
   res.json(protectedResourceMetadata())
 }
 app.get("/.well-known/oauth-protected-resource", readLimiter, prmHandler)
 app.get("/.well-known/oauth-protected-resource/mcp", readLimiter, prmHandler)
-app.get("/.well-known/oauth-authorization-server", readLimiter, (_req, res) => {
+app.get("/.well-known/oauth-authorization-server", readLimiter, (req, res) => {
+  if (oauthDiscoveryHidden(req)) return res.status(404).json({ error: "not_found" })
   res.json(authorizationServerMetadata())
 })
 
