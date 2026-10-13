@@ -1,0 +1,25 @@
+# autoyield
+
+> MCP server for researching tokenized US stocks (Backed xStocks such as SPYx, NVDAx, TSLAx) and USDC yield on Solana. Read-only research edition needs no sign-in; a full edition also prepares unsigned transactions that the user signs in their own wallet (non-custodial). Not investment advice; tokenized US stocks are not offered to US persons.
+
+## Connect
+
+- Research edition (read-only, no sign-in, listed in the Claude connector directory): https://mcp.autoyield.org/research
+- Full edition (adds prepare-to-sign buy/sell/deposit/withdraw; OAuth with a free Phantom signature): https://autoyield-api.fly.dev/mcp
+- Claude Code: `claude mcp add --transport http autoyield https://mcp.autoyield.org/research`
+- Local stdio package: `npx -y @kaditang/agent-wallet-mcp` (npm: @kaditang/agent-wallet-mcp; MCP Registry: io.github.kaditang/agent-wallet-mcp)
+
+## Tools (research edition)
+
+- compare_yields: rank USDC lending and tokenized-treasury yields across chains by risk-adjusted APY, with risk scores and reasons
+- quote_tokenized_stock: live Jupiter quote, order-size cost vs a $100 buy, and an entry-timing signal (premium vs the real NYSE price against its own history)
+- check_xstock_safety: verify a tokenized stock is the issuer's genuine token; flags copycats, depegs, thin liquidity, trading halts
+- get_portfolio, portfolio_health, suggest_rebalance, export_history: wallet holdings, checkups, rebalance suggestions, trade-history CSV for any public Solana address
+- list_xstocks, list_yield_tokens, track_tx
+
+## Docs
+
+- [README](https://github.com/kaditang/agent-wallet-mcp#readme): tools, prompts, architecture, install
+- [Security model](https://github.com/kaditang/agent-wallet-mcp/blob/main/SECURITY.md)
+- [Privacy policy](https://autoyield.org/privacy.html)
+- [Terms](https://autoyield.org/terms.html) · [Disclaimer](https://autoyield.org/disclaimer.html)

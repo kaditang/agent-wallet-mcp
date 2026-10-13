@@ -36,6 +36,10 @@ Claude opens a page on autoyield.org where you sign one free, off-chain message 
 
 **Read-only research edition (no sign-in):** `https://mcp.autoyield.org/research` — the 10 analysis tools (risk-adjusted yields, quotes with entry timing and size cost, token safety checks, portfolio checkups, rebalance suggestions, trade-history export) over public data. It never prepares or sends transactions; wallet addresses are public on-chain data, so no login is needed. This is the edition listed in the Claude connector directory. Use the `/mcp` URL above when you also want transactions prepared for you to sign.
 
+**Claude Code:** `claude mcp add --transport http autoyield https://mcp.autoyield.org/research`
+
+**Cursor / VS Code:** [Add to VS Code](https://vscode.dev/redirect?url=vscode%3Amcp%2Finstall%3F%257B%2522name%2522%253A%2522autoyield%2522%252C%2522type%2522%253A%2522http%2522%252C%2522url%2522%253A%2522https%253A%252F%252Fmcp.autoyield.org%252Fresearch%2522%257D) · in Cursor, add to `~/.cursor/mcp.json`: `{"mcpServers": {"autoyield": {"url": "https://mcp.autoyield.org/research"}}}` (or use the **Add to Cursor** button on [autoyield.org](https://autoyield.org)).
+
 **Local install (Claude Desktop / Cursor / any stdio MCP client):** add to `~/Library/Application Support/Claude/claude_desktop_config.json` (Claude Desktop on macOS) or your editor's MCP config:
 
 ```json

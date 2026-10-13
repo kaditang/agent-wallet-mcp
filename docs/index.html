@@ -147,7 +147,20 @@
       </ul>
 
       <h2>Install</h2>
-      <p>Add to <code>~/Library/Application Support/Claude/claude_desktop_config.json</code>:</p>
+      <p><b>Claude (web, desktop or mobile)</b> — Settings → Connectors → <i>Add custom connector</i>, paste:</p>
+      <pre>https://mcp.autoyield.org/research</pre>
+      <p class="small" style="color:var(--muted);margin-top:-1rem">Research edition: read-only, no sign-in. Want transactions prepared for you to sign in Phantom too? Use <code>https://autoyield-api.fly.dev/mcp</code> instead — it asks you to sign one free message in Phantom.</p>
+
+      <p><b>Claude Code</b></p>
+      <pre>claude mcp add --transport http autoyield https://mcp.autoyield.org/research</pre>
+
+      <p><b>Cursor / VS Code</b> — one click:</p>
+      <p>
+        <a class="cta" href="cursor://anysphere.cursor-deeplink/mcp/install?name=autoyield&config=eyJ1cmwiOiJodHRwczovL21jcC5hdXRveWllbGQub3JnL3Jlc2VhcmNoIn0%3D">Add to Cursor</a>
+        <a class="cta" href="https://vscode.dev/redirect?url=vscode%3Amcp%2Finstall%3F%257B%2522name%2522%253A%2522autoyield%2522%252C%2522type%2522%253A%2522http%2522%252C%2522url%2522%253A%2522https%253A%252F%252Fmcp.autoyield.org%252Fresearch%2522%257D">Add to VS Code</a>
+      </p>
+
+      <p><b>Local (npx, any stdio MCP client)</b> — e.g. <code>claude_desktop_config.json</code>:</p>
       <pre>{
   "mcpServers": {
     "autoyield": {
