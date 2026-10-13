@@ -45,6 +45,7 @@ import {
   withBroadcastLock,
 } from "../sol/sign-store.js"
 import { randomUUID } from "node:crypto"
+import { isIP } from "node:net"
 import { withRpcFallback } from "../sol/connection.js"
 import { VersionedTransaction } from "@solana/web3.js"
 
@@ -54,6 +55,19 @@ export const app = express()
 // refuses to use X-Forwarded-For and all requests appear to come from one
 // internal IP, breaking per-IP rate limiting.
 app.set("trust proxy", 1)
+
+// The real client address. `trust proxy` alone was NOT enough on Fly: the
+// audit log showed every request — from a laptop and from Anthropic's servers
+// alike — as 66.241.125.125 (Fly's own edge address), which silently turned
+// every per-IP rate limit into ONE global bucket shared by all users. Fly's
+// proxy sets Fly-Client-IP to the address it accepted the connection from
+// (overwriting any client-supplied value), so req.ip is taken from it when
+// present and well-formed. Everything downstream (limiters, audit) reads req.ip.
+app.use((req, _res, next) => {
+  const fly = req.header("fly-client-ip")?.trim()
+  if (fly && isIP(fly)) Object.defineProperty(req, "ip", { value: fly, configurable: true, enumerable: true })
+  next()
+})
 
 // CORS — open by default but restrictable. Production should set
 // ALLOWED_ORIGINS to a comma-separated list (e.g. "https://autoyield.org").
