@@ -231,6 +231,12 @@ async function runConsent(id: string) {
   }
 
   if (h1) h1.textContent = `Connect ${d.client_name} to autoyield`
+  document.title = `Connect ${d.client_name} · autoyield`
+  // The page footer is about manually minted API keys — irrelevant (and
+  // confusing) while authorizing an app.
+  document.querySelectorAll("p.small").forEach((el) => {
+    if (/Lost your key/.test(el.textContent ?? "")) (el as HTMLElement).style.display = "none"
+  })
   if (sub) {
     sub.textContent =
       `${d.client_name} (${d.redirect_host}) is asking to use autoyield as a connector. ` +
