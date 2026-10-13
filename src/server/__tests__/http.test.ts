@@ -95,15 +95,18 @@ describe("HTTP surface", () => {
     })
   })
 
-  describe("/.well-known oauth stubs", () => {
-    it("oauth-protected-resource returns 404 (deliberately, for Smithery compat)", async () => {
+  describe("/.well-known OAuth discovery (remote connector)", () => {
+    it("oauth-protected-resource points at this authorization server", async () => {
       const r = await request(app).get("/.well-known/oauth-protected-resource")
-      expect(r.status).toBe(404)
+      expect(r.status).toBe(200)
+      expect(r.body.resource).toMatch(/\/mcp$/)
     })
 
-    it("oauth-authorization-server returns 404", async () => {
+    it("oauth-authorization-server advertises PKCE S256 + DCR", async () => {
       const r = await request(app).get("/.well-known/oauth-authorization-server")
-      expect(r.status).toBe(404)
+      expect(r.status).toBe(200)
+      expect(r.body.code_challenge_methods_supported).toEqual(["S256"])
+      expect(r.body.registration_endpoint).toMatch(/\/register$/)
     })
   })
 })

@@ -84,13 +84,17 @@ loadFromDisk()
 
 // --- nonce / challenge ---
 
-export function issueNonce(): { nonce: string; message: string; expiresAt: number } {
+export function issueNonce(
+  heading = "Sign in to autoyield.org",
+): { nonce: string; message: string; expiresAt: number } {
   const nonce = randomUUID()
   const expiresAt = Date.now() + NONCE_TTL_MS
   // Build the message ONCE at issue time and store it. /auth/verify must
   // verify the signature against this exact bytes — rebuilding the message
   // at verify time would race the timestamp and break ed25519 verification.
-  const message = `Sign in to autoyield.org\n\nNonce: ${nonce}\nIssued: ${new Date().toISOString().slice(0, 19)}Z`
+  // `heading` lets the OAuth consent flow put WHAT is being authorized (app
+  // name, redirect host, request id) into the bytes the user signs.
+  const message = `${heading}\n\nNonce: ${nonce}\nIssued: ${new Date().toISOString().slice(0, 19)}Z`
   NONCES.set(nonce, { message, createdAt: Date.now() })
   // Sweep expired
   for (const [k, v] of NONCES) {

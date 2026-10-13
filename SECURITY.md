@@ -3,7 +3,7 @@
 `autoyield` handles a real-money path on Solana mainnet. This doc explains
 what we defend against, what's out of scope, and how to report issues.
 
-This is a living document — last revised **2026-06-10**.
+This is a living document — last revised **2026-10-13**.
 
 ---
 
@@ -76,8 +76,11 @@ parties claim; we compose their guarantees.
 | RPC primary outage | `withRpcFallback` pool: Helius primary, mainnet-beta + publicnode fallbacks; transient-error pattern matching. | `src/sol/connection.ts` |
 | Operational secret leakage via 500 responses | `sanitizeError` strips file paths and stack frames in production; Sentry `beforeSend` strips cookies/headers/body/query before transport. | `src/server/auth.ts:sanitizeError`, `src/server/sentry.ts` |
 | Audit log loss on crash | Sync `appendFileSync` on flush, called from SIGTERM/SIGINT/beforeExit. | `src/server/audit.ts` |
-| OAuth redirect_uri to `javascript:` / `data:` | `redirectIsSafeScheme` refuses non-http(s) up front. | `web/src/account-main.ts` |
-| OAuth redirect to `*.localhost` phishing | Exact-match-only for `localhost` and `127.0.0.1`; wildcard reserved for `smithery.*` and `run.tools`. | `web/src/account-main.ts` |
+| OAuth: authorization code / api key leaking via URLs, history or referrers | Codes are random, single-use, 5-min, and burned on ANY exchange attempt; the api key is only returned from the token endpoint (`Cache-Control: no-store`), never placed in a URL or the consent page. | `src/server/oauth.ts` |
+| OAuth: intercepted code redeemed by someone else | PKCE S256 required; code bound to client_id + redirect_uri + challenge; RFC 8707 `resource` checked. | `src/server/oauth.ts:exchangeCode` |
+| OAuth: open redirect / code sent to an attacker-chosen URI | redirect_uris must be registered (https, or http only on loopback); `/oauth/authorize` answers a plain 400 — never a redirect — for an unknown client or unregistered redirect. | `src/server/oauth.ts:startAuthorization` |
+| OAuth: consent phishing (attacker registers a client, sends victim a link) | Consent page shows the app name and redirect host (warning for unrecognised hosts), and the Phantom message itself names the app + host and is bound to that single request id; a plain sign-in nonce or one for another request can't approve it. Approval is single-use. | `web/src/account-main.ts`, `src/server/oauth.ts:approveAuthorization` |
+| Remote-connector traffic shares provider IPs | `/mcp` limited per authenticated user (60/min) behind a loose per-IP flood guard; OAuth endpoints have their own bucket. | `src/server/index.ts` rate limiters |
 
 ### Out of scope (user / upstream responsibility)
 
@@ -281,6 +284,15 @@ for the full risk list.
 
 ## Document changelog
 
+- **2026-10-13** — Hosted endpoint is now a standard OAuth 2.1 authorization
+  server (RFC 9728/8414/7591/7636/8707) so it works as a Claude.ai / ChatGPT
+  remote connector. Replaces the old bridge that used the api key itself as
+  the authorization code (key in URLs, unverified PKCE, unbound redirect_uri):
+  codes are now random/single-use/5-min, PKCE S256 is required, redirect URIs
+  must be registered, and the Phantom consent message names the app and is
+  bound to one request. `/mcp` is rate-limited per user (provider IPs are
+  shared). Jupiter calls fail over between api.jup.ag and lite-api.jup.ag.
+  Verified with the official MCP SDK OAuth client end to end.
 - **2026-06-10** — Preflight hardened: simulation errors now fail CLOSED (a tx
   that fails simulation is blocked — it would fail on-chain anyway); native-SOL
   spend bounded at 0.05 SOL per tx; missing verification recipe in the stash

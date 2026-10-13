@@ -21,6 +21,17 @@ import { audit, flushAuditSync } from "./audit.js"
 import nacl from "tweetnacl"
 import bs58 from "bs58"
 import { clampSlippage } from "./tools.js"
+import {
+  OAuthError,
+  approveAuthorization,
+  authorizationChallenge,
+  authorizationServerMetadata,
+  describeAuthorization,
+  exchangeCode,
+  protectedResourceMetadata,
+  registerClient,
+  startAuthorization,
+} from "./oauth.js"
 import { createMcpServer } from "./mcp-server.js"
 import { preflightSignedTx, PREFLIGHT_ENFORCE } from "../sol/preflight.js"
 import { captureMessage } from "./sentry.js"
@@ -81,6 +92,36 @@ const broadcastLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: "rate limited (10 broadcasts/min)." },
 })
+// Remote-connector traffic (Claude.ai, ChatGPT) reaches us from the PROVIDER's
+// server IPs, so per-IP limits would make all their users share one bucket.
+//  - /mcp: a loose per-IP flood guard BEFORE auth, then a per-user limit
+//    (keyed on the authenticated wallet/user) after requireAuth.
+//  - OAuth endpoints: their own bucket, sized for server-to-server
+//    register/token calls arriving from a few provider IPs.
+// RATE_LIMIT_SCALE (test-only knob) multiplies these limits.
+const RL_SCALE = Number(process.env.RATE_LIMIT_SCALE) || 1
+const mcpIpLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 600 * RL_SCALE,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "rate limited" },
+})
+const mcpUserLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 60 * RL_SCALE, // per user — a chatty agent run is ~5-15 calls
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  keyGenerator: (req) => `u:${(req as any).userId ?? "anon"}`,
+  message: { error: "rate limited (60 MCP calls/min per user). Slow down." },
+})
+const oauthLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 120 * RL_SCALE,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "rate limited" },
+})
 // /healthz is unauthenticated and makes a live RPC call. A loose limiter +
 // short-lived slot cache keep it from being used to amplify load onto our
 // RPC quota. 30 hits / 10s is generous for real uptime monitors.
@@ -130,74 +171,116 @@ app.get("/healthz", healthLimiter, (_req, res) => {
   )
 })
 
-// --- OAuth 2.1 metadata stubs for MCP HTTP clients (mcp-remote etc.) ----
-// The MCP HTTP transport spec (post 2025-06-18) requires servers to expose
-// RFC 9728 / 8414 / 7591 OAuth discovery so clients can negotiate auth.
-// Our actual auth model is "user signs in with Phantom at /account.html and
-// pastes the resulting `ak_<hex>` key into the MCP client config as a Bearer
-// header" — i.e. a pre-issued static token, no dynamic OAuth dance. But
-// mcp-remote refuses to start if these well-known endpoints 404.
-//
-// Strategy: respond with valid metadata that points the client at
-// autoyield.org/account.html as the "authorization_endpoint" (where users go
-// to sign in with Phantom and copy the key). Dynamic client registration
-// returns a no-op success so the client proceeds to use the static Bearer.
+// --- OAuth 2.1 (remote MCP connector auth) ---------------------------------
 if (process.env.NODE_ENV === "production" && !process.env.PUBLIC_ORIGIN) {
   console.warn(
     "[startup] PUBLIC_ORIGIN env not set; falling back to hardcoded https://autoyield-api.fly.dev. " +
       "Set PUBLIC_ORIGIN to the actual public URL if it differs.",
   )
 }
-const ORIGIN = process.env.PUBLIC_ORIGIN ?? "https://autoyield-api.fly.dev"
 const ACCOUNT_PAGE = process.env.WEB_BASE_URL
   ? `${process.env.WEB_BASE_URL.replace(/\/$/, "")}/account.html`
   : "https://autoyield.org/account.html"
 
-// Auth advertisement strategy:
-//   - We tell clients "this resource takes a static Bearer token in the
-//     Authorization header" (RFC 9728).
-//   - We DELIBERATELY do NOT advertise authorization_servers, because some
-//     MCP gateways (notably Smithery) then insist on running a full OAuth
-//     2.1 authorization-code dance and get stuck even with a working bridge.
-//     Static-Bearer-only matches our actual model: users mint a key once
-//     at autoyield.org/account.html and paste it into the MCP client.
-//   - oauth-authorization-server returns 404. mcp-remote tested OK without
-//     it (it falls through to /register stub for client info).
-//   - /register and /auth/token stubs stay in case a strict OAuth client
-//     does drive past discovery — they DO produce a usable token.
-// Both well-known endpoints return 404. Smithery interprets the mere
-// presence of /.well-known/oauth-protected-resource as "this resource
-// requires OAuth dance" and refuses to use a static apiKey path even
-// when one is provided. mcp-remote tested OK without these endpoints —
-// it falls back to using the configured --header.
-//
-// The actual auth contract is signaled by:
-//   - 401 responses include `WWW-Authenticate: Bearer realm="autoyield"`
-//     (RFC 6750) — this is the standard way to say "send a Bearer token".
-//   - /register and /auth/token stubs remain for any strict OAuth client
-//     that pushes past discovery.
-app.get("/.well-known/oauth-protected-resource", readLimiter, (_req, res) => {
-  res.status(404).json({ error: "not_found" })
-})
-
+// Real OAuth 2.1 authorization server — see src/server/oauth.ts for the flow.
+// (Previously both well-known endpoints 404'd on purpose: Smithery stalled on
+// a half-implemented OAuth dance. With a complete, standard flow the hosted
+// endpoint now works as a Claude.ai / ChatGPT remote connector. Clients that
+// send a valid static Bearer header never get a 401, so they never start the
+// OAuth dance — the mcp-remote + api-key setup keeps working unchanged.)
+const sendOAuthError = (res: express.Response, e: unknown) => {
+  if (e instanceof OAuthError) {
+    res.status(e.status).json({ error: e.code, error_description: e.message })
+  } else {
+    reply500(res, e, { route: "oauth" })
+  }
+}
+const prmHandler = (_req: express.Request, res: express.Response) => {
+  res.json(protectedResourceMetadata())
+}
+app.get("/.well-known/oauth-protected-resource", readLimiter, prmHandler)
+app.get("/.well-known/oauth-protected-resource/mcp", readLimiter, prmHandler)
 app.get("/.well-known/oauth-authorization-server", readLimiter, (_req, res) => {
-  res.status(404).json({ error: "not_found" })
+  res.json(authorizationServerMetadata())
 })
 
-// Dynamic client registration stub. Returns a random client_id; mcp-remote
-// proceeds to use the static Bearer header from --header anyway.
-app.post("/register", readLimiter, (req, res) => {
-  audit({ kind: "client_register", ip: req.ip })
-  res.json({
-    client_id: `mcp-client-${randomUUID()}`,
-    client_id_issued_at: Math.floor(Date.now() / 1000),
-    token_endpoint_auth_method: "none",
-    grant_types: ["authorization_code"],
-    response_types: ["code"],
-    redirect_uris: [],
-  })
+// RFC 7591 dynamic client registration (public clients, registered redirect URIs).
+app.post("/register", oauthLimiter, (req, res) => {
+  try {
+    const c = registerClient(req.body)
+    audit({ kind: "client_register", ip: req.ip, extra: { client_id: c.client_id, name: c.client_name } })
+    res.status(201).json({
+      client_id: c.client_id,
+      client_id_issued_at: Math.floor(c.created_at / 1000),
+      client_name: c.client_name,
+      redirect_uris: c.redirect_uris,
+      token_endpoint_auth_method: "none",
+      grant_types: ["authorization_code"],
+      response_types: ["code"],
+    })
+  } catch (e) {
+    sendOAuthError(res, e)
+  }
 })
 
+app.get("/oauth/authorize", oauthLimiter, (req, res) => {
+  try {
+    const r = startAuthorization(req.query as Record<string, unknown>)
+    if ("redirectError" in r) {
+      res.redirect(302, r.redirectError)
+      return
+    }
+    const page = new URL(ACCOUNT_PAGE)
+    page.searchParams.set("authz", r.authzId)
+    res.redirect(302, page.toString())
+  } catch (e) {
+    // client_id / redirect_uri problems: never redirect to an unvalidated URI.
+    sendOAuthError(res, e)
+  }
+})
+
+// Consent-page helpers (called by autoyield.org/account.html).
+app.get("/oauth/request/:id", oauthLimiter, (req, res) => {
+  const d = describeAuthorization(String(req.params.id))
+  if (!d) {
+    res.status(404).json({ error: "invalid_request", error_description: "authorization request expired or unknown" })
+    return
+  }
+  res.json(d)
+})
+app.post("/oauth/challenge", oauthLimiter, (req, res) => {
+  try {
+    const { nonce, message, expiresAt } = authorizationChallenge(String(req.body?.authz ?? ""))
+    res.json({ nonce, message, expiresAt })
+  } catch (e) {
+    sendOAuthError(res, e)
+  }
+})
+app.post("/oauth/approve", oauthLimiter, (req, res) => {
+  try {
+    const r = approveAuthorization(req.body)
+    audit({ kind: "api_key_minted", wallet: req.body?.pubkey, ip: req.ip, extra: { via: "oauth" } })
+    res.json(r)
+  } catch (e) {
+    if (e instanceof OAuthError && e.status === 401) {
+      audit({ kind: "auth_fail", ip: req.ip, wallet: req.body?.pubkey, error: "oauth_sig_verify" })
+    }
+    sendOAuthError(res, e)
+  }
+})
+
+app.post("/oauth/token", oauthLimiter, express.urlencoded({ extended: false }), (req, res) => {
+  res.set("Cache-Control", "no-store")
+  try {
+    res.json(exchangeCode(req.body))
+  } catch (e) {
+    sendOAuthError(res, e)
+  }
+})
+
+// LEGACY token endpoint from the old bridge ("code" = an existing api key).
+// Kept so an older client config doesn't break; it can only echo a key the
+// caller already holds. New flows use /oauth/token (advertised in metadata).
 // OAuth 2.1 token endpoint. The "code" the client receives from the
 // authorization endpoint (autoyield.org/account.html callback) IS the api
 // key — minted server-side after the user signed a Phantom challenge. So
@@ -769,7 +852,7 @@ app.get("/sol/balances", readLimiter, async (req, res) => {
 // not used by V1d service architecture.)
 
 // MCP transport. Stateless: V1 service tools take wallet as an arg, no per-user state.
-app.post("/mcp", buildLimiter, requireAuth, async (req, res) => {
+app.post("/mcp", mcpIpLimiter, requireAuth, mcpUserLimiter, async (req, res) => {
   try {
     const server = createMcpServer({ userId: req.userId })
 

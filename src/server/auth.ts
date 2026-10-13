@@ -79,7 +79,12 @@ declare module "express-serve-static-core" {
 // RFC 6750: 401 responses on protected resources should include
 // WWW-Authenticate so clients know the scheme. Without this header,
 // Smithery's gateway falls back to assuming OAuth — and gets stuck.
-const WWW_AUTH = 'Bearer realm="autoyield-mcp", error="invalid_token"'
+// resource_metadata (RFC 9728) is how a remote-connector client (Claude.ai,
+// ChatGPT) discovers our OAuth server. RFC 6750: no `error` when the request
+// carried no credentials at all; error="invalid_token" when it carried a bad one.
+const RESOURCE_METADATA = `${process.env.PUBLIC_ORIGIN ?? "https://autoyield-api.fly.dev"}/.well-known/oauth-protected-resource`
+const WWW_AUTH_MISSING = `Bearer realm="autoyield-mcp", resource_metadata="${RESOURCE_METADATA}"`
+const WWW_AUTH = `Bearer realm="autoyield-mcp", error="invalid_token", resource_metadata="${RESOURCE_METADATA}"`
 
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
   const auth = req.header("authorization") ?? ""
@@ -96,7 +101,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
     token = auth
   }
   if (!token) {
-    res.set("WWW-Authenticate", WWW_AUTH)
+    res.set("WWW-Authenticate", WWW_AUTH_MISSING)
     res.status(401).json({ error: "unauthorized" })
     return
   }

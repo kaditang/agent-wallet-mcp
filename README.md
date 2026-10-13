@@ -26,7 +26,15 @@ Coinbase, Phantom, and Crossmint all offer "agent wallets," but they are generic
 
 ## Install
 
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (Claude Desktop on macOS) or your editor's MCP config:
+**Easiest — remote connector (no terminal, no API key):** in Claude (web, desktop or mobile) go to *Settings → Connectors → Add custom connector* and paste:
+
+```
+https://autoyield-api.fly.dev/mcp
+```
+
+Claude opens a page on autoyield.org where you sign one free, off-chain message in Phantom that names the app you're connecting. Standard OAuth 2.1 (PKCE, dynamic client registration), so any MCP client that supports remote connectors works the same way. You still sign every transaction yourself.
+
+**Local install (Claude Desktop / Cursor / any stdio MCP client):** add to `~/Library/Application Support/Claude/claude_desktop_config.json` (Claude Desktop on macOS) or your editor's MCP config:
 
 ```json
 {

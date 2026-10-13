@@ -10,6 +10,9 @@ process.env.NODE_ENV = "test"
 process.env.SIGN_STORE_PATH = path.join(TMP_ROOT, "sign-store.json")
 process.env.AUDIT_LOG_PATH = path.join(TMP_ROOT, "audit.log")
 process.env.AUTH_STORE_PATH = path.join(TMP_ROOT, "api-keys.json")
+process.env.OAUTH_CLIENTS_PATH = path.join(TMP_ROOT, "oauth-clients.json")
+// Many full OAuth flows run against one in-process app from one IP.
+process.env.RATE_LIMIT_SCALE = "20"
 process.env.DEMO_TOKENS = "testtok:testuser"
 // Don't actually go to a real RPC during tests; default fallbacks satisfy the
 // "at least one endpoint" guard in connection.ts.

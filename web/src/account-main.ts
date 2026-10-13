@@ -45,65 +45,21 @@ const params = new URLSearchParams(location.search)
 const apiOverride = isLocalhost ? params.get("api") : null
 const apiBase = (apiOverride ?? DEFAULT_API).replace(/\/$/, "")
 
-// OAuth 2.1 authorization code flow bridge. When an MCP client (Smithery
-// gateway, future spec-strict clients) redirects the user here, they pass:
-//   ?response_type=code&redirect_uri=...&state=...&client_id=...&code_challenge=...
-// On successful Phantom Sign-In we mint an api key, then redirect to
-//   redirect_uri?code=<apiKey>&state=<state>
-// The "code" IS the api key — /auth/token unwraps it transparently.
+// OAuth 2.1 consent mode. An MCP client (Claude.ai, ChatGPT, …) sends the
+// user to the API's /oauth/authorize, which validates the client, its
+// pre-registered redirect_uri and the PKCE challenge, then redirects here with
+// an opaque `?authz=<id>`. This page never sees or trusts a redirect_uri: it
+// asks the API who is asking, shows it, has the user sign a message that NAMES
+// that app, and the API answers with where to send the browser (carrying a
+// one-time code — the api key never appears in a URL or in this page).
 //
-// SECURITY: redirect_uri is attacker-controlled, so we restrict to known
-// MCP-gateway hosts. Unknown hosts get a confirmation prompt before
-// redirect (so a phishing site can't steal a user's key by setting
-// redirect_uri to attacker.com).
-const oauthFlow = (() => {
-  const responseType = params.get("response_type")
-  const redirectUri = params.get("redirect_uri")
-  const state = params.get("state") ?? ""
-  if (responseType !== "code" || !redirectUri) return null
-  return { redirectUri, state }
+// The old bridge (`?response_type=code&redirect_uri=…` → redirect with
+// code=<api key>) is gone: it put the key in browser history and trusted an
+// attacker-supplied redirect_uri behind a host allowlist.
+const authzId = (() => {
+  const v = params.get("authz")
+  return v && /^[A-Za-z0-9_-]{16,64}$/.test(v) ? v : null
 })()
-
-// Hosts allowed to receive an OAuth `code=<api-key>` callback without a
-// confirmation prompt. Smithery's gateway uses `*.smithery.run`,
-// `*.smithery.ai`, AND `*.run.tools` (their separate proxy TLD), so all
-// three are explicitly trusted. localhost/127.0.0.1 are trusted ONLY as
-// exact matches — the audit flagged `.localhost` subdomain wildcards
-// because some browser DNS configs resolve `*.localhost` to 127.0.0.1
-// and a phishing site running `attacker.localhost` would otherwise have
-// been considered trusted.
-const KNOWN_MCP_GATEWAY_HOSTS_WILDCARD = ["smithery.run", "smithery.ai", "run.tools"]
-const KNOWN_MCP_GATEWAY_HOSTS_EXACT = ["localhost", "127.0.0.1"]
-
-function redirectIsTrusted(uri: string): boolean {
-  try {
-    const u = new URL(uri)
-    // SECURITY: only http(s). new URL("javascript:alert(1)") parses with
-    // hostname="" — without this check, such a URI fell through to the
-    // untrusted-with-consent path and a user click could execute attacker
-    // JS in the autoyield.org origin (where the api key is in the DOM).
-    if (u.protocol !== "http:" && u.protocol !== "https:") return false
-    const host = u.hostname
-    if (KNOWN_MCP_GATEWAY_HOSTS_EXACT.includes(host)) return true
-    return KNOWN_MCP_GATEWAY_HOSTS_WILDCARD.some(
-      (h) => host === h || host.endsWith("." + h),
-    )
-  } catch {
-    return false
-  }
-}
-
-/** Scheme-and-shape pre-check for any redirect_uri we'd consider following.
- *  Even on the untrusted-with-consent path, we never want to navigate to
- *  `javascript:` or `data:` URIs. Audit P2. */
-function redirectIsSafeScheme(uri: string): boolean {
-  try {
-    const u = new URL(uri)
-    return u.protocol === "https:" || u.protocol === "http:"
-  } catch {
-    return false
-  }
-}
 
 const btn = document.getElementById("signin") as HTMLButtonElement
 const statusEl = document.getElementById("status") as HTMLDivElement
@@ -135,6 +91,9 @@ function bytesToBase64(bytes: Uint8Array): string {
 }
 
 btn.addEventListener("click", async () => {
+  // Consent mode owns the button (runConsent sets btn.onclick); this plain
+  // "get an API key" handler must not also run.
+  if (authzId) return
   setStatus("hidden")
   resultEl.style.display = "none"
 
@@ -217,45 +176,6 @@ btn.addEventListener("click", async () => {
     return
   }
 
-  // OAuth flow: redirect back to the MCP client's callback URL with the
-  // api key as the authorization code. Skip showing the key page since
-  // the client will exchange it server-side.
-  if (oauthFlow) {
-    // SECURITY: refuse non-http(s) redirect URIs outright — javascript:
-    // and data: URIs would execute attacker JS in the autoyield.org
-    // origin (where the api key lives in the DOM). Audit P2.
-    if (!redirectIsSafeScheme(oauthFlow.redirectUri)) {
-      setStatus(
-        "err",
-        "Refused: the OAuth redirect_uri must use http or https. The MCP client appears to be misconfigured (or the page was opened from a malicious link).",
-      )
-      btn.disabled = true
-      btn.textContent = "Aborted"
-      return
-    }
-    const callback = new URL(oauthFlow.redirectUri)
-    callback.searchParams.set("code", apiKey)
-    if (oauthFlow.state) callback.searchParams.set("state", oauthFlow.state)
-    if (redirectIsTrusted(oauthFlow.redirectUri)) {
-      setStatus(
-        "ok",
-        `Signed in as ${pubkey.slice(0, 6)}…${pubkey.slice(-6)}\nReturning to ${callback.host}…`,
-      )
-      window.location.replace(callback.toString())
-      return
-    }
-    // Untrusted redirect: show user a consent prompt before sending the key.
-    btn.textContent = "Continue"
-    setStatus(
-      "warn",
-      `An app at ${callback.host} is asking to receive your autoyield API key.\nThis grants it full access to build transactions on your wallet's behalf.\n(You still sign every tx in Phantom — this just controls who can ask.)\n\nIf you didn't expect this, close the tab.`,
-    )
-    btn.onclick = () => {
-      window.location.replace(callback.toString())
-    }
-    return
-  }
-
   setStatus("ok", `Signed in as ${pubkey.slice(0, 6)}…${pubkey.slice(-6)}`)
   btn.textContent = "✓ API key issued"
   resultEl.style.display = "block"
@@ -289,3 +209,82 @@ btn.addEventListener("click", async () => {
     }
   })
 })
+
+// --- OAuth consent mode -----------------------------------------------------
+async function runConsent(id: string) {
+  const h1 = document.querySelector("h1")
+  const sub = document.querySelector(".sub")
+  const info = document.getElementById("info")
+  if (info) info.style.display = "none"
+  btn.disabled = true
+  btn.textContent = "Loading…"
+
+  let d: { client_name: string; redirect_host: string; known_host: boolean }
+  try {
+    const r = await fetch(`${apiBase}/oauth/request/${id}`)
+    if (!r.ok) throw new Error((await r.json().catch(() => ({})))?.error_description ?? `HTTP ${r.status}`)
+    d = await r.json()
+  } catch (e: any) {
+    setStatus("err", `This connection request is invalid or expired.\nGo back to your app and click Connect again.\n(${e.message ?? e})`)
+    btn.textContent = "Expired"
+    return
+  }
+
+  if (h1) h1.textContent = `Connect ${d.client_name} to autoyield`
+  if (sub) {
+    sub.textContent =
+      `${d.client_name} (${d.redirect_host}) is asking to use autoyield as a connector. ` +
+      "It will be able to read public data for your wallet and prepare transactions. " +
+      "Nothing ever moves unless you sign each transaction yourself in Phantom."
+  }
+  if (!d.known_host) {
+    setStatus(
+      "warn",
+      `Unrecognized app: access would be sent to ${d.redirect_host}.\nOnly continue if you started this connection yourself from that app.`,
+    )
+  }
+  btn.disabled = false
+  btn.textContent = `Connect Phantom & authorize ${d.client_name}`
+
+  btn.onclick = async () => {
+    const provider = getPhantom()
+    if (!provider) {
+      setStatus("warn", "Phantom not detected.\nInstall it from https://phantom.com (Chrome / Brave / Firefox extension).")
+      return
+    }
+    btn.disabled = true
+    btn.textContent = "Connecting…"
+    try {
+      const pubkey = (await provider.connect()).publicKey.toString()
+      const ch = await fetch(`${apiBase}/oauth/challenge`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ authz: id }),
+      })
+      if (!ch.ok) throw new Error((await ch.json().catch(() => ({})))?.error_description ?? `HTTP ${ch.status}`)
+      const { nonce, message } = await ch.json()
+      setStatus("info", "Phantom will show what you're authorizing. Approve to continue.")
+      btn.textContent = "Signing…"
+      const signed = await provider.signMessage(new TextEncoder().encode(message), "utf8")
+      const sigBytes: Uint8Array = signed.signature ?? signed
+      const ap = await fetch(`${apiBase}/oauth/approve`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ authz: id, pubkey, nonce, signatureBase64: bytesToBase64(sigBytes) }),
+      })
+      if (!ap.ok) throw new Error((await ap.json().catch(() => ({})))?.error_description ?? `HTTP ${ap.status}`)
+      const { redirect } = await ap.json()
+      setStatus("ok", `Authorized. Returning to ${d.client_name}…`)
+      btn.textContent = "✓ Authorized"
+      window.location.replace(redirect)
+    } catch (e: any) {
+      if (/reject|denied|cancel/i.test(e?.message ?? "")) setStatus("warn", "You cancelled — nothing was authorized.")
+      else setStatus("err", `Authorization failed: ${e.message ?? e}`)
+      btn.disabled = false
+      btn.textContent = `Connect Phantom & authorize ${d.client_name}`
+    }
+  }
+}
+
+if (authzId) void runConsent(authzId)
+
