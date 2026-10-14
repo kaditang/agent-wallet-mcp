@@ -105,3 +105,19 @@ export async function withRpcFallback<T>(
   }
   throw lastErr ?? new Error("all RPC endpoints exhausted")
 }
+
+/**
+ * Run the SAME call on the first `n` distinct endpoints concurrently (each with the per-call
+ * timeout) and return every outcome. For checks where one endpoint must not be the sole judge
+ * (the pre-broadcast preflight): a single buggy or malicious RPC could otherwise make a tampered
+ * tx look fine. With one endpoint configured this is exactly one call.
+ */
+export async function withRpcEach<T>(
+  n: number,
+  fn: (conn: Connection) => Promise<T>,
+): Promise<PromiseSettledResult<T>[]> {
+  const k = Math.max(1, Math.min(n, pool.length))
+  return Promise.allSettled(
+    pool.slice(0, k).map((c, i) => withTimeout(fn(c), RPC_CALL_TIMEOUT_MS, `endpoint #${i}`)),
+  )
+}

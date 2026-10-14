@@ -192,6 +192,50 @@ export async function preflightSignedTx(
   }
 }
 
+/**
+ * PURE: merge the verdicts of the same preflight run on several RPC endpoints (2026-10-15 audit
+ * item "preflight trusts a single RPC"). Safety comes from ANY endpoint seeing a violation:
+ *   - any "violation"           → violation (one honest node is enough to stop a tampered tx)
+ *   - else any "pass"           → pass. A "sim-error" next to a pass is safe to let through: if
+ *                                 the failure is real the tx fails on-chain and moves nothing, and
+ *                                 a lagging node must not block a legit trade.
+ *   - else any "sim-error"      → sim-error (every node that answered says the tx cannot land)
+ *   - else (all "skip"/no node) → skip (our infra could not verify: fail OPEN, as before)
+ */
+export function combineVerdicts(vs: PreflightVerdict[]): PreflightVerdict {
+  const tag = (v: PreflightVerdict, i: number) => ({ ...v, reason: vs.length > 1 ? `[rpc ${i}] ${v.reason}` : v.reason })
+  const withIdx = vs.map((v, i) => tag(v, i))
+  const violation = withIdx.find((v) => v.verdict === "violation")
+  if (violation) return violation
+  const pass = withIdx.find((v) => v.verdict === "pass")
+  if (pass) {
+    const others = withIdx.filter((v) => v !== pass && v.verdict !== "pass").map((v) => `${v.verdict}: ${v.reason}`)
+    return others.length ? { ...pass, reason: `${pass.reason} (other endpoints: ${others.join("; ").slice(0, 120)})` } : pass
+  }
+  const simErr = withIdx.find((v) => v.verdict === "sim-error")
+  if (simErr) return simErr
+  return withIdx[0] ?? { verdict: "skip", reason: "no RPC endpoint answered" }
+}
+
+/**
+ * Run the preflight on up to `quorum` endpoints at once and merge with combineVerdicts. An endpoint
+ * that throws or times out counts as "skip". Latency is the slowest endpoint (each bounded by the
+ * per-call timeout), not the sum.
+ */
+export async function preflightQuorum(
+  signedTxBase64: string,
+  exp: PreflightExpectation,
+  each: (n: number, fn: (c: Connection) => Promise<PreflightVerdict>) => Promise<PromiseSettledResult<PreflightVerdict>[]>,
+  quorum = Number(process.env.PREFLIGHT_QUORUM) || 2,
+): Promise<PreflightVerdict> {
+  const settled = await each(quorum, (c) => preflightSignedTx(c, signedTxBase64, exp))
+  return combineVerdicts(
+    settled.map((r) =>
+      r.status === "fulfilled" ? r.value : { verdict: "skip" as const, reason: `rpc failed: ${String((r.reason as Error)?.message ?? r.reason).slice(0, 60)}` },
+    ),
+  )
+}
+
 /** Enforce flag — start in shadow (log-only). Flip via env once validated. */
 // Default ON: enforce unless explicitly disabled with PREFLIGHT_ENFORCE=false.
 // Shadow mode is now opt-in (the rollout is complete and validated on mainnet).

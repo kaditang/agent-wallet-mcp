@@ -34,7 +34,7 @@ import {
 } from "./oauth.js"
 import { createMcpServer } from "./mcp-server.js"
 import { flushMetricsSync, metricsSummary, recordConnect } from "./metrics.js"
-import { preflightSignedTx, PREFLIGHT_ENFORCE } from "../sol/preflight.js"
+import { preflightQuorum, PREFLIGHT_ENFORCE } from "../sol/preflight.js"
 import { captureMessage } from "./sentry.js"
 import { getBalances } from "../sol/balances.js"
 import {
@@ -47,7 +47,7 @@ import {
 } from "../sol/sign-store.js"
 import { randomUUID, timingSafeEqual } from "node:crypto"
 import { isIP } from "node:net"
-import { withRpcFallback } from "../sol/connection.js"
+import { withRpcFallback, withRpcEach } from "../sol/connection.js"
 import { VersionedTransaction } from "@solana/web3.js"
 
 export const app = express()
@@ -711,8 +711,11 @@ app.post("/sign/broadcast", broadcastLimiter, async (req, res) => {
     if (stashed.rebuildRecipe && stashed.minOut != null) {
       try {
         const r = stashed.rebuildRecipe
-        const verdict = await withRpcFallback((c) =>
-          preflightSignedTx(c, signedTxBase64, {
+        // Two endpoints judge independently (combineVerdicts): one bad RPC can no longer make a
+        // tampered tx pass on its own.
+        const verdict = await preflightQuorum(
+          signedTxBase64,
+          {
             wallet: stashed.wallet,
             inputMint: r.inputMint,
             outputMint: r.outputMint,
@@ -720,7 +723,8 @@ app.post("/sign/broadcast", broadcastLimiter, async (req, res) => {
             outputDecimals: r.outputDecimals,
             inputAmount: Number(r.amountInHuman),
             minOut: stashed.minOut!,
-          }),
+          },
+          withRpcEach,
         )
         // Shadow observability: log EVERY verdict (incl. pass) so we can
         // confirm the delta math on real txs in flyctl logs before flipping
