@@ -896,7 +896,8 @@ async function serveMcp(
       res.status(400).json({ jsonrpc: "2.0", id: null, error: { code: -32600, message: `batch too large (max ${MAX_BATCH})` } })
       return
     }
-    if (msgs.some((m: any) => m?.method === "initialize")) recordConnect(ctx.readOnly ? "research" : "full")
+    const init = msgs.find((m: any) => m?.method === "initialize")
+    if (init) recordConnect(ctx.readOnly ? "research" : "full", init?.params?.clientInfo?.name)
     const server = createMcpServer(ctx)
 
     const transport = new StreamableHTTPServerTransport({

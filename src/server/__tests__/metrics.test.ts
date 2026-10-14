@@ -41,3 +41,22 @@ describe("usage metrics", () => {
     expect(ok.body.days).toBe(7)
   })
 })
+
+describe("client software names", () => {
+  it("counts connections per sanitized client name, bounded per day", async () => {
+    const { _resetMetrics, recordConnect, metricsSummary, clientKey } = await import("../metrics.js")
+    _resetMetrics()
+    recordConnect("research", "Claude-AI")
+    recordConnect("research", "claude-ai")
+    recordConnect("research", undefined)
+    recordConnect("research", "<script>x</script>")
+    const r = metricsSummary(1).editions.research
+    expect(r.connects).toBe(4)
+    expect(r.clients["claude-ai"]).toBe(2)
+    expect(r.clients._unknown).toBe(1)
+    expect(clientKey("<script>x</script>")).toBe("scriptxscript")
+    for (let i = 0; i < 60; i++) recordConnect("research", `bot${i}`)
+    expect(Object.keys(metricsSummary(1).editions.research.clients).length).toBeLessThanOrEqual(51)
+    expect(metricsSummary(1).editions.research.clients._other).toBeGreaterThan(0)
+  })
+})

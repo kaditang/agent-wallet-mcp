@@ -184,6 +184,8 @@ async function usageReport() {
     for (const [ed, v] of Object.entries(m.editions)) {
       const calls = Object.values(v.tools).reduce((a, t) => a + t.calls, 0)
       lines.push(`  ${ed.padEnd(8)} connections ${v.connects}, tool calls ${calls}`)
+      const clients = Object.entries(v.clients ?? {}).sort((x, y) => y[1] - x[1])
+      if (clients.length) lines.push(`    clients: ${clients.map(([c, n]) => `${c} ${n}`).join(", ")}`)
       for (const [name, t] of Object.entries(v.tools).sort((a, b) => b[1].calls - a[1].calls)) {
         lines.push(`    ${name.padEnd(22)} ${String(t.calls).padStart(5)} calls  ${String(t.errors).padStart(3)} err  p50≤${t.p50Ms}ms p95≤${t.p95Ms}ms`)
         for (const e of t.lastErrors ?? []) lines.push(`      ↳ ${e}`)

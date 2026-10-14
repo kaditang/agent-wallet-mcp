@@ -5,7 +5,9 @@
 // What is recorded, per UTC day and per edition (research | full):
 //   - tool calls: count, error count, latency histogram
 //   - prompt fetches: count per prompt
-//   - connections: count of MCP `initialize` handshakes
+//   - connections: count of MCP `initialize` handshakes, and per client
+//     software name (clientInfo.name, e.g. "claude-ai", "cursor") — tells real
+//     clients apart from directory scanners
 // What is NOT recorded: wallet addresses, IPs, arguments, results — nothing
 // that identifies a user (see the privacy policy).
 //
@@ -23,7 +25,9 @@ const RETAIN_DAYS = 90
 const PATH = process.env.METRICS_PATH ?? "data/metrics.json"
 
 type ToolStat = { calls: number; errors: number; msSum: number; hist: number[]; lastErrors?: string[] }
-type EditionDay = { connects: number; tools: Record<string, ToolStat>; prompts: Record<string, number> }
+type EditionDay = { connects: number; clients?: Record<string, number>; tools: Record<string, ToolStat>; prompts: Record<string, number> }
+
+const MAX_CLIENT_NAMES = 50 // per edition per day; the rest count as "_other"
 type Store = { days: Record<string, Partial<Record<Edition, EditionDay>>> }
 
 let store: Store = { days: {} }
@@ -91,8 +95,19 @@ export function recordPrompt(edition: Edition, prompt: string) {
   scheduleFlush()
 }
 
-export function recordConnect(edition: Edition) {
-  day(edition).connects++
+/** PURE: a client software name safe to keep as a metric key. */
+export function clientKey(name: unknown): string {
+  const k = typeof name === "string" ? name.toLowerCase().replace(/[^a-z0-9._ -]/g, "").trim().slice(0, 40) : ""
+  return k || "_unknown"
+}
+
+export function recordConnect(edition: Edition, clientName?: unknown) {
+  const d = day(edition)
+  d.connects++
+  const c = (d.clients ??= {})
+  let k = clientKey(clientName)
+  if (!(k in c) && Object.keys(c).length >= MAX_CLIENT_NAMES) k = "_other"
+  c[k] = (c[k] ?? 0) + 1
   scheduleFlush()
 }
 
@@ -113,13 +128,14 @@ export function metricsSummary(days = 7, now = Date.now()) {
   const from = today(now - (days - 1) * 86_400_000)
   const out: Record<
     string,
-    { connects: number; tools: Record<string, { calls: number; errors: number; avgMs: number; p50Ms: number | null; p95Ms: number | null; lastErrors?: string[] }>; prompts: Record<string, number> }
+    { connects: number; clients: Record<string, number>; tools: Record<string, { calls: number; errors: number; avgMs: number; p50Ms: number | null; p95Ms: number | null; lastErrors?: string[] }>; prompts: Record<string, number> }
   > = {}
   for (const [d, eds] of Object.entries(store.days)) {
     if (d < from) continue
     for (const [ed, v] of Object.entries(eds) as [Edition, EditionDay][]) {
-      const o = (out[ed] ??= { connects: 0, tools: {}, prompts: {} })
+      const o = (out[ed] ??= { connects: 0, clients: {}, tools: {}, prompts: {} })
       o.connects += v.connects
+      for (const [c, n] of Object.entries(v.clients ?? {})) o.clients[c] = (o.clients[c] ?? 0) + n
       for (const [p, n] of Object.entries(v.prompts)) o.prompts[p] = (o.prompts[p] ?? 0) + n
       for (const [name, t] of Object.entries(v.tools)) {
         const agg = ((o.tools[name] as any) ??= { calls: 0, errors: 0, msSum: 0, hist: BINS.map(() => 0) })
