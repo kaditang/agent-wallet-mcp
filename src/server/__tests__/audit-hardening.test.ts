@@ -7,6 +7,7 @@ import { app } from "../index.js"
 import { createMcpServer } from "../mcp-server.js"
 import { _resetBudgets, takeBudget } from "../budget.js"
 import { _resetMetrics, metricsSummary } from "../metrics.js"
+import { dispatch } from "../tools.js"
 
 // 2026-10-13 audit: unauthenticated /research could drive paid RPC without a
 // global bound (batches bypass per-IP limits), and arbitrary tool names grew
@@ -64,5 +65,12 @@ describe("audit hardening", () => {
     const want = process.env.METRICS_TOKEN!
     const r = await request(app).get("/metrics").set("authorization", `Bearer ${"é".repeat(want.length)}`)
     expect(r.status).toBe(404)
+  })
+
+  it("amount args accept a JSON number as well as a string (models send numbers after compare_yields)", async () => {
+    const asNumber: any = await dispatch({ name: "quote_tokenized_stock", arguments: { ticker: "ZZZZ", amountUsdc: 500 } })
+    expect(asNumber.content[0].text).toMatch(/not in xStocks registry/) // got past argument validation
+    await expect(dispatch({ name: "quote_tokenized_stock", arguments: { ticker: "ZZZZ", amountUsdc: -5 } })).rejects.toThrow()
+    await expect(dispatch({ name: "quote_tokenized_stock", arguments: { ticker: "ZZZZ", amountUsdc: true } })).rejects.toThrow()
   })
 })

@@ -35,6 +35,12 @@ function text(s: string, isError = false) {
   return { content: [{ type: "text" as const, text: s }], isError }
 }
 
+// Amount arguments are documented as strings ("5", or "max" for sells /
+// withdrawals), but models often send a JSON number — especially right after
+// compare_yields, whose amountUsdc IS a number. Accept both; downstream code
+// keeps working on the string form.
+const amountArg = z.union([z.string(), z.number().finite().positive()]).transform((v) => String(v))
+
 // Pre-trade safety gate — calls StockWaves' FREE tokenized-equity health preview to
 // check a token is the REAL one (not a copycat) and tradeable right now (peg / liquidity
 // / market-hours). READ-ONLY HTTP GET, no signing, no cost — fits the non-custodial model.
@@ -381,7 +387,7 @@ export async function dispatch(
     const { ticker, amountUsdc, slippageBps } = z
       .object({
         ticker: z.string().min(1).max(8),
-        amountUsdc: z.string(),
+        amountUsdc: amountArg,
         slippageBps: z.number().int().min(1).max(10000).optional(),
       })
       .parse(args)
@@ -789,7 +795,7 @@ export async function dispatch(
       .object({
         wallet: walletSchema,
         asset: z.string(),
-        amountUsdc: z.string(),
+        amountUsdc: amountArg,
         slippageBps: z.number().int().min(1).max(10000).optional(),
       })
       .parse(args)
@@ -842,7 +848,7 @@ export async function dispatch(
       .object({
         wallet: walletSchema,
         ticker: z.string().min(1).max(8),
-        amountUsdc: z.string(),
+        amountUsdc: amountArg,
         slippageBps: z.number().int().min(1).max(10000).optional(),
       })
       .parse(args)
@@ -887,7 +893,7 @@ export async function dispatch(
       .object({
         wallet: walletSchema,
         ticker: z.string().min(1).max(8),
-        amountShares: z.string(),
+        amountShares: amountArg,
         slippageBps: z.number().int().min(1).max(10000).optional(),
       })
       .parse(args)
@@ -980,7 +986,7 @@ export async function dispatch(
       .object({
         wallet: walletSchema,
         asset: z.string(),
-        amount: z.string(),
+        amount: amountArg,
         slippageBps: z.number().int().min(1).max(10000).optional(),
       })
       .parse(args)
