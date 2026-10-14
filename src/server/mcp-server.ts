@@ -41,6 +41,21 @@ export function toolErrorMessage(e: unknown): string {
 
 const KNOWN_TOOLS = new Set<string>(getToolList().map((t) => t.name))
 
+// Upper bound on one tool call. Each RPC attempt times out at 8s, but the
+// fallback chain (up to 5 endpoints) and export_history's 200 lookups can add
+// up to minutes — long after the client gave up. Answer with a clear error
+// instead; the abandoned work finishes in the background.
+export const TOOL_DEADLINE_MS = Number(process.env.TOOL_DEADLINE_MS) || 40_000
+
+export function withDeadline<T>(p: Promise<T>, ms: number, tool: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${tool} took longer than ${Math.round(ms / 1000)}s (upstream data source slow) — try again`)), ms)
+    timer.unref?.()
+  })
+  return Promise.race([p, deadline]).finally(() => clearTimeout(timer))
+}
+
 export function createMcpServer(ctx: { userId?: string; readOnly?: boolean }) {
   const server = new Server(
     { name: "agent-wallet", version: SERVER_VERSION },
@@ -58,7 +73,7 @@ export function createMcpServer(ctx: { userId?: string; readOnly?: boolean }) {
     let result: any
     try {
       result = takeBudget(edition, r.params.name)
-        ? await dispatch(r.params, ctx)
+        ? await withDeadline(dispatch(r.params, ctx), TOOL_DEADLINE_MS, r.params.name)
         : {
             content: [{ type: "text" as const, text: JSON.stringify({ ok: false, error: `${r.params.name} is busy right now (shared per-minute limit). Try again in a minute.` }) }],
             isError: true,

@@ -84,6 +84,11 @@ const LLAMA_STALE_OK_MS = 60 * 60_000
 let llamaCache: { data: any[]; at: number } | null = null
 let llamaInflight: Promise<any[]> | null = null
 
+/** PURE: could compareYields use this pool (before the TVL/APY filters)? */
+export function isCandidatePool(p: any): boolean {
+  return (p?.symbol || "").toUpperCase() === "USDC" || TOKENIZED_TREASURY_PROJECTS.has((p?.project || "").toLowerCase())
+}
+
 async function llamaPools(): Promise<any[]> {
   if (llamaCache && Date.now() - llamaCache.at < LLAMA_TTL_MS) return llamaCache.data
   llamaInflight ??= (async () => {
@@ -93,8 +98,11 @@ async function llamaPools(): Promise<any[]> {
       const r = await fetch(LLAMA, { signal: AbortSignal.timeout(8000) })
       if (!r.ok) throw new Error(`defillama ${r.status}`)
       const j = (await r.json()) as { data: any[] }
-      llamaCache = { data: j.data, at: Date.now() }
-      return j.data
+      // Keep only pools compareYields can ever use: ~500 of ~17k. The full
+      // list held ~40MB of heap on a 512MB machine for the cache's lifetime.
+      const data = j.data.filter(isCandidatePool)
+      llamaCache = { data, at: Date.now() }
+      return data
     } catch (e) {
       if (llamaCache && Date.now() - llamaCache.at < LLAMA_STALE_OK_MS) return llamaCache.data
       throw e

@@ -15,6 +15,7 @@
 // — acceptable since they re-click "sign in".
 
 import fs from "node:fs"
+import { loadJsonFile } from "./safe-json.js"
 import path from "node:path"
 import { createHash, randomBytes, randomUUID } from "node:crypto"
 import { audit } from "./audit.js"
@@ -49,9 +50,7 @@ function ensureDir() {
 
 function loadFromDisk() {
   try {
-    if (!fs.existsSync(STORE_PATH)) return
-    const raw = fs.readFileSync(STORE_PATH, "utf8")
-    const parsed = JSON.parse(raw) as Stored
+    const parsed = loadJsonFile<Stored>(STORE_PATH, "auth-store")
     if (parsed && typeof parsed === "object" && parsed.keys) {
       store = parsed
       console.log(

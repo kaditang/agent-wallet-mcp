@@ -26,6 +26,7 @@
 // the user click Connect again.
 
 import fs from "node:fs"
+import { loadJsonFile } from "./safe-json.js"
 import path from "node:path"
 import { createHash, randomBytes } from "node:crypto"
 import nacl from "tweetnacl"
@@ -76,7 +77,7 @@ let clients: Record<string, Client> = {}
 
 function loadClients() {
   try {
-    if (fs.existsSync(CLIENTS_PATH)) clients = JSON.parse(fs.readFileSync(CLIENTS_PATH, "utf8")) ?? {}
+    clients = loadJsonFile<Record<string, Client>>(CLIENTS_PATH, "oauth-clients") ?? {}
   } catch (e) {
     console.warn(`[oauth] could not load clients: ${(e as Error).message}`)
   }

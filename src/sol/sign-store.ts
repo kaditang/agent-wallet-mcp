@@ -8,6 +8,7 @@
 // sign twice we don't double-broadcast.
 
 import fs from "node:fs"
+import { loadJsonFile } from "../server/safe-json.js"
 import path from "node:path"
 import { randomUUID } from "node:crypto"
 
@@ -91,9 +92,8 @@ function ensureDir() {
 
 function loadFromDisk() {
   try {
-    if (!fs.existsSync(STORE_PATH)) return
-    const raw = fs.readFileSync(STORE_PATH, "utf8")
-    const arr: SignableTx[] = JSON.parse(raw)
+    const arr = loadJsonFile<SignableTx[]>(STORE_PATH, "sign-store")
+    if (!Array.isArray(arr)) return
     const now = Date.now()
     for (const tx of arr) {
       if (now - tx.createdAt > TTL_MS) continue

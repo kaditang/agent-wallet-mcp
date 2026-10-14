@@ -15,6 +15,7 @@
 // wipes it), flushed on a debounce and on shutdown; 90 days retained.
 
 import fs from "node:fs"
+import { loadJsonFile } from "./safe-json.js"
 import path from "node:path"
 
 export type Edition = "research" | "full"
@@ -32,7 +33,7 @@ type Store = { days: Record<string, Partial<Record<Edition, EditionDay>>> }
 
 let store: Store = { days: {} }
 try {
-  if (fs.existsSync(PATH)) store = JSON.parse(fs.readFileSync(PATH, "utf8")) ?? { days: {} }
+  store = loadJsonFile<Store>(PATH, "metrics") ?? { days: {} }
 } catch {
   store = { days: {} }
 }
