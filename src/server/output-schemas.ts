@@ -29,7 +29,7 @@ const BUILD_TX = obj({
 export const OUTPUT_SCHEMAS: Record<string, Schema> = {
   compare_yields: obj({
     asOf: s("ISO timestamp"),
-    results: arr("Pools ranked by risk-adjusted APY (protocol, chain, apy, riskAdjustedApy, riskScore, riskNotes, executable)"),
+    results: arr("Pools ranked by risk-adjusted APY, core tier before speculative (protocol, chain, apy, riskAdjustedApy, riskScore, tier, riskNotes, executable)"),
     topExecutable: o("Best risk-adjusted pool autoyield can prepare deposits for"),
     topByRiskAdjustedOverall: o("Best risk-adjusted pool across all chains"),
     rankedBy: s("Ranking key (riskAdjustedApy)"),

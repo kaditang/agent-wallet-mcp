@@ -62,3 +62,27 @@ describe("metrics error redaction", () => {
     expect(redactError("x".repeat(500)).length).toBe(160)
   })
 })
+
+describe("compare_yields speculative tier", () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it("ranks a high-APY, very weak pool after every core pool, and never as a top pick", async () => {
+    const pools = [
+      // Real 2026-10-15 shape: 63.7% on $0.2M, unknown protocol, predicted down → score ~8.
+      { symbol: "USDC", project: "ample", chain: "Base", apy: 63.7, apyBase: 20, apyReward: 43.7, tvlUsd: 205_290, sigma: 40, predictions: { predictedClass: "Down", predictedProbability: 80 }, pool: "weak" },
+      { symbol: "USDC", project: "compound-v3", chain: "Ethereum", apy: 5.5, apyBase: 5.5, tvlUsd: 35.6e6, sigma: 0.5, pool: "comp" },
+      { symbol: "USDC", project: "kamino-lend", chain: "Solana", apy: 5.9, apyBase: 5.9, tvlUsd: 8e6, sigma: 0.5, pool: "kamino" },
+    ]
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ data: pools })))
+    const { compareYields, _clearYieldsCache, SPECULATIVE_BELOW } = await import("../../sol/yields.js")
+    _clearYieldsCache()
+    const r = await compareYields({ amountUsdc: 10_000 })
+    const weak = r.results.find((p) => p.poolId === "weak")!
+    expect(weak.riskScore).toBeLessThan(SPECULATIVE_BELOW)
+    expect(weak.tier).toBe("speculative")
+    expect(weak.riskNotes.join(" ")).toMatch(/speculative/)
+    expect(r.results[r.results.length - 1].poolId).toBe("weak")
+    expect(r.topByRiskAdjustedOverall?.tier).toBe("core")
+    expect(r.topExecutable?.poolId).toBe("kamino")
+  })
+})

@@ -24,7 +24,18 @@ export type YieldEntry = {
   riskScore: number
   riskFactors: RiskFactors
   riskNotes: string[]
+  /** "speculative" = riskScore below SPECULATIVE_BELOW; ranked after every "core" pool. */
+  tier: "core" | "speculative"
 }
+
+/**
+ * riskAdjustedApy discounts the YIELD, but a very weak pool's real risk is
+ * the principal. Multiplying a 63.7% headline by a 0.08 composite still gave
+ * 5.4% — ranking a thin $0.2M pool (risk score 8) above Compound v3 (86) and
+ * Aave (77). Pools scoring below this floor are tiered "speculative" and
+ * ranked after every pool that clears it, with a note saying why.
+ */
+export const SPECULATIVE_BELOW = 25
 
 const LLAMA = "https://yields.llama.fi/pools"
 
@@ -190,6 +201,7 @@ export async function compareYields(opts?: {
       opts?.amountUsdc,
     )
 
+    const tier = scored.riskScore < SPECULATIVE_BELOW ? "speculative" : "core"
     results.push({
       protocol: native?.slug ?? `${project}-${symbol.toLowerCase()}`,
       chain: String(chain).toLowerCase(),
@@ -207,14 +219,19 @@ export async function compareYields(opts?: {
       riskAdjustedApy: scored.riskAdjustedApy,
       riskScore: scored.riskScore,
       riskFactors: scored.riskFactors,
-      riskNotes: scored.riskNotes,
+      riskNotes:
+        tier === "speculative"
+          ? [...scored.riskNotes, `risk score ${scored.riskScore}/100 is below ${SPECULATIVE_BELOW} — speculative, ranked after every pool that clears it`]
+          : scored.riskNotes,
+      tier,
     })
   }
 
   // Rank by risk-adjusted APY, not headline APY. This is the whole point:
   // a 12% reward-farm on a thin unaudited pool sorts BELOW a 6% pure-lending
   // base rate on deep, battle-tested Kamino.
-  results.sort((a, b) => b.riskAdjustedApy - a.riskAdjustedApy)
+  // Core pools first, then speculative ones; risk-adjusted APY within each tier.
+  results.sort((a, b) => (a.tier === b.tier ? b.riskAdjustedApy - a.riskAdjustedApy : a.tier === "core" ? -1 : 1))
   // results[0] is the global best risk-adjusted pool (may be read-only in V1);
   // topExecutable is the best one the user can actually act on today.
   const topByRiskAdjustedOverall = results[0]
