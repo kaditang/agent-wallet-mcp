@@ -27,6 +27,7 @@ jobs:
           cache: "npm"
       - run: npm ci
       - run: npm test
+      - run: npx tsc --noEmit   # typecheck gates the deploy too
 
   sentry-release:
     # Builds TypeScript and uploads source maps to Sentry, tagging the
