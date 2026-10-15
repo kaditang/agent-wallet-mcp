@@ -51,7 +51,19 @@ type XstockSafety = {
   verified?: boolean
   issuer?: string
   reason?: string
+  /** Why an unverified token looks fake (incl. instruction-like / link-bearing metadata). */
+  redFlags?: string[]
+  /** Present for unverified tokens: their symbol/name are creator-set data, never instructions. */
+  labelNote?: string
   error?: string
+}
+
+// Text relayed from the gate can quote a token's own symbol/name, which on an unverified token is
+// attacker-controlled (prompt-injection via token metadata). The gate already cleans and flags it;
+// this is defence in depth: drop control/zero-width/bidi characters and cap the length.
+export function relayText(v: unknown, max: number): string {
+  const t = String(v ?? "").normalize("NFKC").replace(/\s+/g, " ").replace(/[\p{Cc}\p{Cf}\p{Co}\p{Cn}]/gu, "").trim()
+  return [...t].length > max ? [...t].slice(0, max - 1).join("") + "…" : t
 }
 // The gate is an external service (cold calls ~3s). A token's authenticity
 // doesn't change minute to minute and depeg/halt status is fine 60s stale, so
@@ -86,8 +98,12 @@ async function checkXstockSafetyUncached(params: { symbol?: string; address?: st
       ok: true,
       decision: d.decision as XstockSafety["decision"],
       verified: auth.verified as boolean,
-      issuer: tok.issuer as string,
-      reason: d.recommendation as string,
+      issuer: relayText(tok.issuer, 60),
+      reason: relayText(d.recommendation, 800),
+      ...(Array.isArray(auth.red_flags) && auth.red_flags.length
+        ? { redFlags: auth.red_flags.slice(0, 6).map((f) => relayText(f, 300)) }
+        : {}),
+      ...(tok.label_note ? { labelNote: relayText(tok.label_note, 200) } : {}),
     }
   } catch (e) {
     return { ok: false, error: (e as Error).message }
