@@ -97,7 +97,77 @@ let llamaInflight: Promise<any[]> | null = null
 
 /** PURE: could compareYields use this pool (before the TVL/APY filters)? */
 export function isCandidatePool(p: any): boolean {
-  return (p?.symbol || "").toUpperCase() === "USDC" || TOKENIZED_TREASURY_PROJECTS.has((p?.project || "").toLowerCase())
+  return (
+    (p?.symbol || "").toUpperCase() === "USDC" ||
+    TOKENIZED_TREASURY_PROJECTS.has((p?.project || "").toLowerCase()) ||
+    isStablePendlePt(p)
+  )
+}
+
+// Pendle principal tokens (PT) on dollar stablecoins: a FIXED rate to maturity, the one thing the
+// floating pools above cannot offer. Listed separately (never ranked against lending: different
+// product, EVM-only, autoyield cannot prepare it). DefiLlama names them by poolMeta
+// "For buying PT-<asset>-<DDMONYYYY>"; the LP rows of the same markets are excluded.
+const STABLE_RX = /USD|DAI|GHO|FRAX/
+const PT_META_RX = /^For buying (PT-[A-Za-z0-9.+_-]+?-(\d{1,2})([A-Z]{3})(\d{4}))$/
+const MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
+const PT_MIN_TVL = 5_000_000
+
+/** PURE */
+export function isStablePendlePt(p: any): boolean {
+  return (
+    (p?.project || "").toLowerCase() === "pendle-v2" &&
+    PT_META_RX.test(p?.poolMeta || "") &&
+    STABLE_RX.test((p?.symbol || "").toUpperCase())
+  )
+}
+
+export type FixedRateEntry = {
+  protocol: "pendle-v2"
+  chain: string
+  asset: string
+  pt: string
+  maturity: string // YYYY-MM-DD
+  daysToMaturity: number
+  fixedApy: number // %, locked at purchase if held to maturity
+  tvlUsd: number
+  poolId: string
+  executable: false
+}
+
+// Measured by the autoyield/StockWaves team 2026-10-15: every expired Pendle market on 13 chains
+// with median TVL >= $1M (480), implied APY vs the mean underlying APY from that day to expiry.
+export const PENDLE_FIXED_EVIDENCE =
+  "Measured over 480 expired Pendle markets (TVL >= $1M, 2024-2026): the fixed rate a PT locked in beat the floating yield actually paid in about 9 of 10, by a median 3.7 APY points 30 days before expiry, shrinking from ~10 points (2024) to ~2-3 (2026). The gap is mostly what floating-side (YT) buyers pay for points/airdrops."
+
+/** PURE: stablecoin Pendle PTs worth showing, largest first. */
+export function fixedRateFromPools(pools: any[], now = Date.now(), limit = 5): FixedRateEntry[] {
+  const out: FixedRateEntry[] = []
+  for (const p of pools) {
+    if (!isStablePendlePt(p)) continue
+    const tvl = Number(p.tvlUsd ?? 0)
+    const apy = Number(p.apy ?? 0)
+    if (tvl < PT_MIN_TVL || !(apy > 0 && apy <= 100)) continue
+    const m = PT_META_RX.exec(p.poolMeta)!
+    const mon = MONTHS.indexOf(m[3])
+    if (mon < 0) continue
+    const maturity = Date.UTC(Number(m[4]), mon, Number(m[2]))
+    const days = Math.floor((maturity - now) / 86_400_000)
+    if (days < 7) continue // under a week left: too little to lock to be worth listing
+    out.push({
+      protocol: "pendle-v2",
+      chain: String(p.chain).toLowerCase(),
+      asset: String(p.symbol).toUpperCase(),
+      pt: m[1],
+      maturity: new Date(maturity).toISOString().slice(0, 10),
+      daysToMaturity: days,
+      fixedApy: Math.round(apy * 100) / 100,
+      tvlUsd: Math.round(tvl),
+      poolId: p.pool,
+      executable: false,
+    })
+  }
+  return out.sort((a, b) => b.tvlUsd - a.tvlUsd).slice(0, limit)
 }
 
 async function llamaPools(): Promise<any[]> {
@@ -151,6 +221,9 @@ export async function compareYields(opts?: {
    *  topByRiskAdjustedOverall (true global best) explicitly. */
   topByRiskAdjusted?: YieldEntry
   rankedBy: "riskAdjustedApy"
+  /** Read-only: stablecoin Pendle PTs (fixed rate to maturity). Not ranked with
+   *  the lending pools above and never executable by autoyield. */
+  fixedRateAlternatives?: { note: string; evidence: string; pools: FixedRateEntry[] }
 }> {
   const minTvl = opts?.minTvlUsd ?? 100_000
 
@@ -236,6 +309,7 @@ export async function compareYields(opts?: {
   // topExecutable is the best one the user can actually act on today.
   const topByRiskAdjustedOverall = results[0]
   const topExecutable = results.find((r) => r.executable)
+  const fixed = fixedRateFromPools(j.data)
 
   return {
     asOf: new Date().toISOString(),
@@ -244,5 +318,15 @@ export async function compareYields(opts?: {
     topByRiskAdjustedOverall,
     topByRiskAdjusted: topExecutable, // deprecated back-compat alias
     rankedBy: "riskAdjustedApy",
+    ...(fixed.length
+      ? {
+          fixedRateAlternatives: {
+            note:
+              "Read-only, not ranked with the pools above and not executable by autoyield (EVM, Pendle). fixedApy is locked only if held to maturity; before that the PT price moves with rates. It carries the underlying stablecoin's own risk (e.g. sUSDe depends on Ethena's funding-rate basis trade).",
+            evidence: PENDLE_FIXED_EVIDENCE,
+            pools: fixed,
+          },
+        }
+      : {}),
   }
 }

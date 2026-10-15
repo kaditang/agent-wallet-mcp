@@ -33,6 +33,7 @@ export const OUTPUT_SCHEMAS: Record<string, Schema> = {
     topExecutable: o("Best risk-adjusted pool autoyield can prepare deposits for"),
     topByRiskAdjustedOverall: o("Best risk-adjusted pool across all chains"),
     rankedBy: s("Ranking key (riskAdjustedApy)"),
+    fixedRateAlternatives: o("Read-only stablecoin Pendle PTs (fixed rate to maturity), not ranked with the pools and not executable: note, evidence, pools"),
   }),
   list_yield_tokens: obj({ tokens: arr("Supported tokenized-treasury tokens") }),
   list_xstocks: obj({
