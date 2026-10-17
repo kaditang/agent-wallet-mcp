@@ -124,8 +124,10 @@ export function isSolanaPubkey(v: unknown): v is string {
   }
 }
 
-/** One line, no control characters: a statement must not be able to fake the fields below it. */
-function oneLine(s: string, max = 300): string {
+/** One line, no control characters: a statement must not be able to fake the fields below it.
+ *  The cap is a backstop; the OAuth statement (80-char app name + up to 253-char host + fixed text)
+ *  stays under it so the "nothing moves unless you sign" sentence is never cut off. */
+function oneLine(s: string, max = 700): string {
   return s.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ").trim().slice(0, max)
 }
 
@@ -161,8 +163,10 @@ export function issueNonce(
   const message = lines.join("\n")
   // Sweep expired, then cap: the route is rate-limited per IP, but a spread of addresses must not
   // grow the map without bound (oldest in-flight challenge goes first; its user just retries).
+  // Insertion order = issue order, so the expired ones are at the front.
   for (const [k, v] of NONCES) {
-    if (now - v.createdAt > NONCE_TTL_MS) NONCES.delete(k)
+    if (now - v.createdAt <= NONCE_TTL_MS) break
+    NONCES.delete(k)
   }
   while (NONCES.size >= MAX_NONCES) NONCES.delete(NONCES.keys().next().value!)
   NONCES.set(nonce, { message, createdAt: now, purpose, address, requestId })

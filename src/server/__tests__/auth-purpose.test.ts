@@ -117,6 +117,20 @@ describe("OAuth consent nonces", () => {
     expect(ap.status).toBe(400)
   })
 
+  it("a long app name and host never cut off the end of the statement", async () => {
+    const host = `${"a".repeat(60)}.${"b".repeat(60)}.${"c".repeat(60)}.${"d".repeat(50)}.example`
+    const redirect = `https://${host}/cb`
+    const reg = await request(app).post("/register").send({ client_name: "N".repeat(200), redirect_uris: [redirect] })
+    const a = await request(app).get("/oauth/authorize").query({
+      response_type: "code", client_id: reg.body.client_id, redirect_uri: redirect, state: "s",
+      code_challenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM", code_challenge_method: "S256",
+    })
+    const id = new URL(a.headers.location).searchParams.get("authz")!
+    const ch = (await request(app).post("/oauth/challenge").send({ authz: id })).body
+    expect(ch.message).toContain(host)
+    expect(ch.message).toContain("Nothing moves unless you sign each transaction yourself.")
+  })
+
   it("rejects a malformed wallet", async () => {
     const r = await request(app).post("/oauth/challenge").send({ authz: await authzId(), pubkey: "nope" })
     expect(r.status).toBe(400)
