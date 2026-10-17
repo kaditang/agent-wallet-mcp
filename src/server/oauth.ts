@@ -233,15 +233,18 @@ export function describeAuthorization(authzId: string) {
   }
 }
 
-/** Issue the message the user signs — it names the app and binds this request. */
-export function authorizationChallenge(authzId: string) {
+/** Issue the message the user signs — it names the app, the wallet (when known) and binds this request. */
+export function authorizationChallenge(authzId: string, pubkey?: string) {
   const d = describeAuthorization(authzId)
   if (!d) throw new OAuthError("invalid_request", "authorization request expired or unknown — start again from your app")
-  return issueNonce(
-    `Authorize "${d.client_name}" (${d.redirect_host}) to use autoyield as an MCP connector.\n` +
-      `It can read public wallet data and prepare transactions. Nothing moves unless you sign each transaction yourself.\n` +
-      `Request: ${authzId}`,
-  )
+  return issueNonce({
+    purpose: "oauth",
+    statement:
+      `Authorize "${d.client_name}" (${d.redirect_host}) to use autoyield as an MCP connector. ` +
+      `It can read public wallet data and prepare transactions. Nothing moves unless you sign each transaction yourself.`,
+    address: pubkey,
+    requestId: authzId,
+  })
 }
 
 /** Verify the signed authorization and return where to send the browser. */
@@ -259,10 +262,10 @@ export function approveAuthorization(body: any): { redirect: string } {
     throw new OAuthError("invalid_request", "pubkey must be base58")
   }
   if (pk.length !== 32) throw new OAuthError("invalid_request", "pubkey must decode to 32 bytes")
-  const message = consumeNonce(nonce)
-  // The nonce must have been issued for THIS request (a plain sign-in nonce,
-  // or one for another app, can't approve it).
-  if (!message || !message.includes(`\nRequest: ${authz}\n`)) {
+  // The nonce must have been issued for THIS request (a sign-in or revoke nonce,
+  // or one for another app or wallet, can't approve it).
+  const message = consumeNonce(nonce, "oauth", { requestId: authz, address: pubkey })
+  if (!message) {
     throw new OAuthError("invalid_request", "nonce invalid, expired, or not issued for this authorization")
   }
   const sig = Buffer.from(signatureBase64, "base64")

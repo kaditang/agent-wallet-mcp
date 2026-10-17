@@ -1,6 +1,6 @@
 // Phantom-based "Sign In with Solana" -> API key.
 //
-// Flow: connect Phantom -> POST /auth/challenge -> signMessage in Phantom ->
+// Flow: connect Phantom -> POST /auth/challenge {pubkey} -> signMessage in Phantom ->
 // POST /auth/verify with {pubkey, nonce, signatureBase64} -> show api key.
 
 // Frame-busting: refuse to render inside an iframe (clickjacking defense).
@@ -126,7 +126,12 @@ btn.addEventListener("click", async () => {
   let nonce: string
   let message: string
   try {
-    const r = await fetch(`${apiBase}/auth/challenge`, { method: "POST" })
+    // Sending the wallet puts it in the signed message and binds the nonce to it.
+    const r = await fetch(`${apiBase}/auth/challenge`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ purpose: "login", pubkey }),
+    })
     if (!r.ok) throw new Error(`HTTP ${r.status}`)
     const j = await r.json()
     nonce = j.nonce
@@ -265,7 +270,7 @@ async function runConsent(id: string) {
       const ch = await fetch(`${apiBase}/oauth/challenge`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ authz: id }),
+        body: JSON.stringify({ authz: id, pubkey }),
       })
       if (!ch.ok) throw new Error((await ch.json().catch(() => ({})))?.error_description ?? `HTTP ${ch.status}`)
       const { nonce, message } = await ch.json()

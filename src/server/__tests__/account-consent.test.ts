@@ -22,7 +22,7 @@ describe("account page — OAuth consent mode", () => {
 
     const kp = nacl.sign.keyPair()
     const pubkey = bs58.encode(kp.publicKey)
-    const MESSAGE = `Authorize "Claude" (claude.ai) to use autoyield as an MCP connector.\nRequest: ${AUTHZ}\n\nNonce: n1\nIssued: x`
+    const MESSAGE = `autoyield.org wants you to sign in with your Solana account:\n${pubkey}\n\nAuthorize "Claude" (claude.ai) to use autoyield as an MCP connector.\n\nNonce: n1\nRequest ID: ${AUTHZ}`
     // Uint8Array.from: jsdom's TextEncoder returns a cross-realm Uint8Array that
     // tweetnacl's instanceof check rejects (a test-harness artifact, not a page bug).
     const signMessage = vi.fn(async (bytes: Uint8Array) => ({
@@ -39,7 +39,7 @@ describe("account page — OAuth consent mode", () => {
         return { ok: true, json: async () => ({ client_name: "Claude", redirect_host: "claude.ai", known_host: true }) }
       }
       if (u.endsWith("/oauth/challenge")) {
-        expect(JSON.parse(init.body)).toEqual({ authz: AUTHZ })
+        expect(JSON.parse(init.body)).toEqual({ authz: AUTHZ, pubkey })
         return { ok: true, json: async () => ({ nonce: "n1", message: MESSAGE }) }
       }
       if (u.endsWith("/oauth/approve")) {

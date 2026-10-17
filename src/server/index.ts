@@ -11,6 +11,7 @@ import { z } from "zod"
 import { requireAuth, reply500 } from "./auth.js"
 import {
   consumeNonce,
+  isSolanaPubkey,
   issueNonce,
   lookupApiKey,
   mintApiKey,
@@ -276,7 +277,11 @@ app.get("/oauth/request/:id", oauthLimiter, (req, res) => {
 })
 app.post("/oauth/challenge", oauthLimiter, (req, res) => {
   try {
-    const { nonce, message, expiresAt } = authorizationChallenge(String(req.body?.authz ?? ""))
+    const pubkey = req.body?.pubkey
+    if (pubkey !== undefined && !isSolanaPubkey(pubkey)) {
+      throw new OAuthError("invalid_request", "pubkey must be a base58 32-byte Solana address")
+    }
+    const { nonce, message, expiresAt } = authorizationChallenge(String(req.body?.authz ?? ""), pubkey)
     res.json({ nonce, message, expiresAt })
   } catch (e) {
     sendOAuthError(res, e)
@@ -361,9 +366,25 @@ app.post("/auth/token", readLimiter, express.urlencoded({ extended: true }), (re
 // 3) Frontend POSTs /auth/verify { pubkey, nonce, signatureBase64 } and
 //    receives { apiKey, pubkey } once. The api key is shown to the user
 //    once and used as Bearer in subsequent /mcp + build_*_tx calls.
-app.post("/auth/challenge", buildLimiter, (_req, res) => {
-  const c = issueNonce()
-  res.json(c)
+// Body (all optional): { purpose: "login" | "revoke_all", pubkey }. The nonce can only be spent
+// on that purpose; with a pubkey the message names the wallet and the nonce is bound to it.
+// revoke_all REQUIRES the pubkey, so the user sees which wallet's keys are being wiped.
+app.post("/auth/challenge", buildLimiter, (req, res) => {
+  const purpose = req.body?.purpose ?? "login"
+  if (purpose !== "login" && purpose !== "revoke_all") {
+    res.status(400).json({ error: "purpose must be 'login' or 'revoke_all'" })
+    return
+  }
+  const pubkey = req.body?.pubkey
+  if (pubkey !== undefined && !isSolanaPubkey(pubkey)) {
+    res.status(400).json({ error: "pubkey must be a base58 32-byte Solana address" })
+    return
+  }
+  if (purpose === "revoke_all" && pubkey === undefined) {
+    res.status(400).json({ error: "pubkey required for purpose 'revoke_all'" })
+    return
+  }
+  res.json(issueNonce({ purpose, address: pubkey }))
 })
 
 app.post("/auth/verify", buildLimiter, (req, res) => {
@@ -388,9 +409,9 @@ app.post("/auth/verify", buildLimiter, (req, res) => {
     res.status(400).json({ error: "pubkey must decode to 32 bytes" })
     return
   }
-  const message = consumeNonce(nonce)
+  const message = consumeNonce(nonce, "login", { address: pubkey })
   if (!message) {
-    res.status(400).json({ error: "nonce invalid or expired" })
+    res.status(400).json({ error: "nonce invalid, expired, or not issued for sign-in by this wallet" })
     return
   }
   const sigBytes = Buffer.from(signatureBase64, "base64")
@@ -461,9 +482,13 @@ app.post("/auth/revoke", buildLimiter, (req, res) => {
       res.status(400).json({ error: "pubkey must decode to 32 bytes" })
       return
     }
-    const message = consumeNonce(nonce)
+    // Must be a nonce issued with purpose "revoke_all" for this pubkey: a login (or OAuth)
+    // signature phished elsewhere cannot wipe the wallet's keys.
+    const message = consumeNonce(nonce, "revoke_all", { address: pubkey })
     if (!message) {
-      res.status(400).json({ error: "nonce invalid or expired" })
+      res.status(400).json({
+        error: "nonce invalid, expired, or not issued for revoke_all by this wallet (POST /auth/challenge {purpose:'revoke_all', pubkey})",
+      })
       return
     }
     const sigBytes = Buffer.from(signatureBase64, "base64")
