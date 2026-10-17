@@ -1,6 +1,6 @@
 // Phantom-based "Sign In with Solana" -> API key.
 //
-// Flow: connect Phantom -> POST /auth/challenge {pubkey} -> signMessage in Phantom ->
+// Flow: connect Phantom -> POST /auth/challenge {pubkey} -> signIn (or signMessage) in Phantom ->
 // POST /auth/verify with {pubkey, nonce, signatureBase64} -> show api key.
 
 // Frame-busting: refuse to render inside an iframe (clickjacking defense).
@@ -90,6 +90,29 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary)
 }
 
+// Sign a server-issued challenge. Prefer Phantom's native signIn (Sign In With Solana): the
+// wallet builds the message from the fields itself and checks `domain` against the site that is
+// actually asking, so a lookalike page gets a wallet warning. It returns the bytes it signed,
+// which the server checks field by field against what it issued. Wallets without signIn (or a
+// signIn that fails for a reason other than the user cancelling) fall back to signMessage over
+// the exact server text.
+type Challenge = { nonce: string; message: string; signIn?: Record<string, unknown> }
+async function signChallenge(provider: any, ch: Challenge, pubkey: string): Promise<{ signatureBase64: string; signedMessageBase64?: string }> {
+  if (ch.signIn && typeof provider.signIn === "function") {
+    try {
+      const out = await provider.signIn(ch.signIn)
+      const signer = out?.address?.toString?.() ?? out?.account?.address
+      if (signer && signer !== pubkey) throw new Error("Phantom signed with a different account than the one connected")
+      return { signatureBase64: bytesToBase64(out.signature), signedMessageBase64: bytesToBase64(out.signedMessage) }
+    } catch (e: any) {
+      if (/reject|denied|cancel|different account/i.test(e?.message ?? "")) throw e
+    }
+  }
+  const signed = await provider.signMessage(new TextEncoder().encode(ch.message), "utf8")
+  return { signatureBase64: bytesToBase64(signed.signature ?? signed) }
+}
+
+
 btn.addEventListener("click", async () => {
   // Consent mode owns the button (runConsent sets btn.onclick); this plain
   // "get an API key" handler must not also run.
@@ -123,8 +146,7 @@ btn.addEventListener("click", async () => {
   setStatus("info", `Connected as ${pubkey.slice(0, 6)}…${pubkey.slice(-6)}\nFetching challenge…`)
   btn.textContent = "Signing…"
 
-  let nonce: string
-  let message: string
+  let ch: Challenge
   try {
     // Sending the wallet puts it in the signed message and binds the nonce to it.
     const r = await fetch(`${apiBase}/auth/challenge`, {
@@ -133,9 +155,7 @@ btn.addEventListener("click", async () => {
       body: JSON.stringify({ purpose: "login", pubkey }),
     })
     if (!r.ok) throw new Error(`HTTP ${r.status}`)
-    const j = await r.json()
-    nonce = j.nonce
-    message = j.message
+    ch = await r.json()
   } catch (e: any) {
     setStatus("err", `Could not reach backend at ${apiBase}\n${e.message ?? e}`)
     btn.disabled = false
@@ -145,13 +165,9 @@ btn.addEventListener("click", async () => {
 
   setStatus("info", "Phantom will prompt to sign the login message. Approve.")
 
-  let sigBase64: string
+  let signed: { signatureBase64: string; signedMessageBase64?: string }
   try {
-    const encoded = new TextEncoder().encode(message)
-    const signed = await provider.signMessage(encoded, "utf8")
-    // Phantom returns { signature: Uint8Array, publicKey }
-    const sigBytes: Uint8Array = signed.signature ?? signed
-    sigBase64 = bytesToBase64(sigBytes)
+    signed = await signChallenge(provider, ch, pubkey)
   } catch (e: any) {
     if (/reject|denied|cancel/i.test(e?.message ?? "")) {
       setStatus("warn", "You cancelled the signature.")
@@ -169,7 +185,7 @@ btn.addEventListener("click", async () => {
     const r = await fetch(`${apiBase}/auth/verify`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ pubkey, nonce, signatureBase64: sigBase64 }),
+      body: JSON.stringify({ pubkey, nonce: ch.nonce, ...signed }),
     })
     if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`)
     const j = await r.json()
@@ -272,15 +288,14 @@ async function runConsent(id: string) {
         body: JSON.stringify({ authz: id, pubkey }),
       })
       if (!ch.ok) throw new Error((await ch.json().catch(() => ({})))?.error_description ?? `HTTP ${ch.status}`)
-      const { nonce, message } = await ch.json()
+      const challenge: Challenge = await ch.json()
       setStatus("info", "Phantom will show what you're authorizing. Approve to continue.")
       btn.textContent = "Signing…"
-      const signed = await provider.signMessage(new TextEncoder().encode(message), "utf8")
-      const sigBytes: Uint8Array = signed.signature ?? signed
+      const signed = await signChallenge(provider, challenge, pubkey)
       const ap = await fetch(`${apiBase}/oauth/approve`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ authz: id, pubkey, nonce, signatureBase64: bytesToBase64(sigBytes) }),
+        body: JSON.stringify({ authz: id, pubkey, nonce: challenge.nonce, ...signed }),
       })
       if (!ap.ok) throw new Error((await ap.json().catch(() => ({})))?.error_description ?? `HTTP ${ap.status}`)
       const { redirect } = await ap.json()
@@ -342,14 +357,13 @@ revokeBtn?.addEventListener("click", async () => {
       body: JSON.stringify({ purpose: "revoke_all", pubkey }),
     })
     if (!ch.ok) throw new Error((await ch.json().catch(() => ({})))?.error ?? `HTTP ${ch.status}`)
-    const { nonce, message } = await ch.json()
+    const challenge: Challenge = await ch.json()
     setStatus("info", "Phantom will show the revoke message. Approve to revoke.", st)
-    const signed = await provider.signMessage(new TextEncoder().encode(message), "utf8")
-    const sigBytes: Uint8Array = signed.signature ?? signed
+    const signed = await signChallenge(provider, challenge, pubkey)
     const r = await fetch(`${apiBase}/auth/revoke`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ mode: "all", pubkey, nonce, signatureBase64: bytesToBase64(sigBytes) }),
+      body: JSON.stringify({ mode: "all", pubkey, nonce: challenge.nonce, ...signed }),
     })
     if (!r.ok) throw new Error((await r.json().catch(() => ({})))?.error ?? `HTTP ${r.status}`)
     const { revoked } = await r.json()

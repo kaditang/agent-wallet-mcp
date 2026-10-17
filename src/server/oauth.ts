@@ -32,6 +32,7 @@ import { createHash, randomBytes } from "node:crypto"
 import nacl from "tweetnacl"
 import bs58 from "bs58"
 import { consumeNonce, issueNonce, mintApiKey } from "./auth-store.js"
+import { bytesToVerify } from "./siws.js"
 
 export const OAUTH_ORIGIN = process.env.PUBLIC_ORIGIN ?? "https://autoyield-api.fly.dev"
 export const MCP_RESOURCE = `${OAUTH_ORIGIN}/mcp`
@@ -268,8 +269,10 @@ export function approveAuthorization(body: any): { redirect: string } {
   if (!message) {
     throw new OAuthError("invalid_request", "nonce invalid, expired, or not issued for this authorization")
   }
+  const signedBytes = bytesToVerify(message, pubkey, body?.signedMessageBase64)
+  if (!signedBytes) throw new OAuthError("invalid_request", "signedMessage does not match the issued authorization challenge")
   const sig = Buffer.from(signatureBase64, "base64")
-  if (sig.length !== 64 || !nacl.sign.detached.verify(new TextEncoder().encode(message), sig, pk)) {
+  if (sig.length !== 64 || !nacl.sign.detached.verify(signedBytes, sig, pk)) {
     throw new OAuthError("access_denied", "signature does not verify", 401)
   }
   pending.delete(authz) // single-use

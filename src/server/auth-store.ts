@@ -20,6 +20,7 @@ import path from "node:path"
 import { createHash, randomBytes } from "node:crypto"
 import { audit } from "./audit.js"
 import bs58 from "bs58"
+import { siwsText, type SignInInput } from "./siws.js"
 
 const STORE_PATH = process.env.AUTH_STORE_PATH ?? "data/api-keys.json"
 const NONCE_TTL_MS = 5 * 60 * 1000
@@ -133,7 +134,7 @@ function oneLine(s: string, max = 700): string {
 
 export function issueNonce(
   opts: { purpose: NoncePurpose; statement?: string; address?: string; requestId?: string } = { purpose: "login" },
-): { nonce: string; message: string; expiresAt: number } {
+): { nonce: string; message: string; expiresAt: number; signIn: SignInInput } {
   const { purpose, address, requestId } = opts
   const statement = oneLine(
     purpose === "oauth" ? (opts.statement ?? "Authorize an app to use autoyield.") : STATEMENTS[purpose],
@@ -143,24 +144,24 @@ export function issueNonce(
   const now = Date.now()
   const expiresAt = now + NONCE_TTL_MS
   const iso = (t: number) => new Date(t).toISOString().slice(0, 19) + "Z"
+  // The same fields go two ways: as `signIn` for wallets with native SIWS (Phantom builds the
+  // text itself and checks the domain), and as `message`, the exact text for signMessage.
   // Build the message ONCE at issue time and store it. /auth/verify must
-  // verify the signature against these exact bytes — rebuilding the message
-  // at verify time would race the timestamp and break ed25519 verification.
-  const lines = [`${SIWS_DOMAIN} wants you to sign in with your Solana account:`]
-  if (address) lines.push(address)
-  lines.push(
-    "",
+  // verify the signature against these exact bytes (or bytes that say the same, see siws.ts) —
+  // rebuilding the message at verify time would race the timestamp.
+  const signIn: SignInInput = {
+    domain: SIWS_DOMAIN,
+    ...(address ? { address } : {}),
     statement,
-    "",
-    `URI: ${SIWS_URI}`,
-    "Version: 1",
-    "Chain ID: mainnet",
-    `Nonce: ${nonce}`,
-    `Issued At: ${iso(now)}`,
-    `Expiration Time: ${iso(expiresAt)}`,
-  )
-  if (requestId) lines.push(`Request ID: ${requestId}`)
-  const message = lines.join("\n")
+    uri: SIWS_URI,
+    version: "1",
+    chainId: "mainnet",
+    nonce,
+    issuedAt: iso(now),
+    expirationTime: iso(expiresAt),
+    ...(requestId ? { requestId } : {}),
+  }
+  const message = siwsText(signIn)
   // Sweep expired, then cap: the route is rate-limited per IP, but a spread of addresses must not
   // grow the map without bound (oldest in-flight challenge goes first; its user just retries).
   // Insertion order = issue order, so the expired ones are at the front.
@@ -170,7 +171,7 @@ export function issueNonce(
   }
   while (NONCES.size >= MAX_NONCES) NONCES.delete(NONCES.keys().next().value!)
   NONCES.set(nonce, { message, createdAt: now, purpose, address, requestId })
-  return { nonce, message, expiresAt }
+  return { nonce, message, expiresAt, signIn }
 }
 
 /**

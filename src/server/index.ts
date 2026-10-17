@@ -34,6 +34,7 @@ import {
   startAuthorization,
 } from "./oauth.js"
 import { createMcpServer } from "./mcp-server.js"
+import { bytesToVerify } from "./siws.js"
 import { flushMetricsSync, metricsSummary, recordConnect } from "./metrics.js"
 import { preflightQuorum, PREFLIGHT_ENFORCE } from "../sol/preflight.js"
 import { captureMessage } from "./sentry.js"
@@ -281,8 +282,8 @@ app.post("/oauth/challenge", oauthLimiter, (req, res) => {
     if (pubkey !== undefined && !isSolanaPubkey(pubkey)) {
       throw new OAuthError("invalid_request", "pubkey must be a base58 32-byte Solana address")
     }
-    const { nonce, message, expiresAt } = authorizationChallenge(String(req.body?.authz ?? ""), pubkey)
-    res.json({ nonce, message, expiresAt })
+    const { nonce, message, expiresAt, signIn } = authorizationChallenge(String(req.body?.authz ?? ""), pubkey)
+    res.json({ nonce, message, expiresAt, signIn })
   } catch (e) {
     sendOAuthError(res, e)
   }
@@ -419,11 +420,13 @@ app.post("/auth/verify", buildLimiter, (req, res) => {
     res.status(400).json({ error: "signature must decode to 64 bytes" })
     return
   }
-  const ok = nacl.sign.detached.verify(
-    new TextEncoder().encode(message),
-    sigBytes,
-    pubkeyBytes,
-  )
+  // signMessage signs our stored text; Phantom's native signIn returns the text it built itself.
+  const signedBytes = bytesToVerify(message, pubkey, req.body?.signedMessageBase64)
+  if (!signedBytes) {
+    res.status(400).json({ error: "signedMessage does not match the issued sign-in challenge" })
+    return
+  }
+  const ok = nacl.sign.detached.verify(signedBytes, sigBytes, pubkeyBytes)
   if (!ok) {
     audit({ kind: "auth_fail", ip: req.ip, wallet: pubkey, error: "sig_verify" })
     res.status(401).json({ error: "signature does not verify" })
@@ -496,11 +499,12 @@ app.post("/auth/revoke", buildLimiter, (req, res) => {
       res.status(400).json({ error: "signature must decode to 64 bytes" })
       return
     }
-    const ok = nacl.sign.detached.verify(
-      new TextEncoder().encode(message),
-      sigBytes,
-      pubkeyBytes,
-    )
+    const signedBytes = bytesToVerify(message, pubkey, req.body?.signedMessageBase64)
+    if (!signedBytes) {
+      res.status(400).json({ error: "signedMessage does not match the issued revoke challenge" })
+      return
+    }
+    const ok = nacl.sign.detached.verify(signedBytes, sigBytes, pubkeyBytes)
     if (!ok) {
       audit({ kind: "auth_fail", ip: req.ip, wallet: pubkey, error: "sig_verify_revoke" })
       res.status(401).json({ error: "signature does not verify" })
