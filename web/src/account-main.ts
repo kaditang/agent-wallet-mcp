@@ -66,14 +66,14 @@ const statusEl = document.getElementById("status") as HTMLDivElement
 const resultEl = document.getElementById("result") as HTMLDivElement
 
 type StatusKind = "info" | "ok" | "err" | "warn"
-function setStatus(kind: StatusKind | "hidden", msg = "") {
+function setStatus(kind: StatusKind | "hidden", msg = "", el: HTMLElement = statusEl) {
   if (kind === "hidden") {
-    statusEl.style.display = "none"
+    el.style.display = "none"
     return
   }
-  statusEl.style.display = "block"
-  statusEl.className = `status${kind === "info" ? "" : " " + kind}`
-  statusEl.textContent = msg
+  el.style.display = "block"
+  el.className = `status${kind === "info" ? "" : " " + kind}`
+  el.textContent = msg
 }
 
 function getPhantom(): any {
@@ -239,9 +239,8 @@ async function runConsent(id: string) {
   document.title = `Connect ${d.client_name} · autoyield`
   // The page footer is about manually minted API keys — irrelevant (and
   // confusing) while authorizing an app.
-  document.querySelectorAll("p.small").forEach((el) => {
-    if (/Lost your key/.test(el.textContent ?? "")) (el as HTMLElement).style.display = "none"
-  })
+  const footer = document.getElementById("footer")
+  if (footer) footer.style.display = "none"
   if (sub) {
     sub.textContent =
       `${d.client_name} (${d.redirect_host}) is asking to use autoyield as a connector. ` +
@@ -296,6 +295,79 @@ async function runConsent(id: string) {
     }
   }
 }
+
+// --- Revoke every key of a wallet -------------------------------------------
+// For a leaked key the user no longer has, or to disconnect every app at once.
+// Two clicks (arm, then confirm) so a stray click can't do it; the server-issued
+// message itself says "Revoke ALL autoyield API keys for this wallet" and names
+// the wallet, and that nonce is good for nothing else (not a sign-in, not an
+// app authorization).
+const revokeBtn = document.getElementById("revoke-all") as HTMLButtonElement | null
+const revokeStatus = document.getElementById("revoke-status") as HTMLDivElement | null
+const REVOKE_LABEL = "Revoke all keys for my wallet"
+const ARM_MS = 5000
+let armedUntil = 0
+
+function disarm() {
+  armedUntil = 0
+  if (!revokeBtn) return
+  revokeBtn.classList.remove("armed")
+  revokeBtn.textContent = REVOKE_LABEL
+}
+
+revokeBtn?.addEventListener("click", async () => {
+  const st = revokeStatus!
+  if (Date.now() > armedUntil) {
+    armedUntil = Date.now() + ARM_MS
+    revokeBtn.classList.add("armed")
+    revokeBtn.textContent = "Click again to revoke ALL keys"
+    setTimeout(() => {
+      if (armedUntil && Date.now() >= armedUntil) disarm()
+    }, ARM_MS)
+    return
+  }
+  disarm()
+  setStatus("hidden", "", st)
+  const provider = getPhantom()
+  if (!provider) {
+    setStatus("warn", "Phantom not detected.\nInstall it from https://phantom.com (Chrome / Brave / Firefox extension).", st)
+    return
+  }
+  revokeBtn.disabled = true
+  try {
+    const pubkey = (await provider.connect()).publicKey.toString()
+    const ch = await fetch(`${apiBase}/auth/challenge`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ purpose: "revoke_all", pubkey }),
+    })
+    if (!ch.ok) throw new Error((await ch.json().catch(() => ({})))?.error ?? `HTTP ${ch.status}`)
+    const { nonce, message } = await ch.json()
+    setStatus("info", "Phantom will show the revoke message. Approve to revoke.", st)
+    const signed = await provider.signMessage(new TextEncoder().encode(message), "utf8")
+    const sigBytes: Uint8Array = signed.signature ?? signed
+    const r = await fetch(`${apiBase}/auth/revoke`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode: "all", pubkey, nonce, signatureBase64: bytesToBase64(sigBytes) }),
+    })
+    if (!r.ok) throw new Error((await r.json().catch(() => ({})))?.error ?? `HTTP ${r.status}`)
+    const { revoked } = await r.json()
+    const who = `${pubkey.slice(0, 6)}…${pubkey.slice(-6)}`
+    setStatus(
+      "ok",
+      revoked > 0
+        ? `Revoked ${revoked} key${revoked === 1 ? "" : "s"} for ${who}. Apps that used them must reconnect.`
+        : `No active keys for ${who} — nothing to revoke.`,
+      st,
+    )
+  } catch (e: any) {
+    if (/reject|denied|cancel/i.test(e?.message ?? "")) setStatus("warn", "You cancelled — nothing was revoked.", st)
+    else setStatus("err", `Revoke failed: ${e.message ?? e}`, st)
+  } finally {
+    revokeBtn.disabled = false
+  }
+})
 
 if (authzId) void runConsent(authzId)
 

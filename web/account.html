@@ -97,6 +97,16 @@
         font-size: 0.85rem;
         font-weight: 500;
       }
+      .danger-btn {
+        background: transparent;
+        color: #fca5a5;
+        border: 1px solid var(--err);
+        padding: 0.6rem 0.85rem;
+        font-size: 0.9rem;
+        font-weight: 500;
+      }
+      .danger-btn:hover:not(:disabled) { background: rgba(239,68,68,.12); }
+      .danger-btn.armed { background: var(--err); color: #fff; }
       code {
         background: #000;
         padding: 0.15rem 0.4rem;
@@ -125,12 +135,20 @@
     <div id="result" style="display:none"></div>
     <div id="status" class="status" style="display:none"></div>
 
-    <p class="small" style="margin-top:2rem">
-      Lost your key? Just sign in again — we'll mint a new one. Old keys
-      keep working until you ask us to revoke them (coming soon).
-      <br /><br />
-      <a href="/">← back to autoyield</a>
-    </p>
+    <div class="small" id="footer" style="margin-top:2rem">
+      <p>
+        Lost your key? Just sign in again — we'll mint a new one. Old keys
+        keep working until you revoke them.
+      </p>
+      <p>
+        Key leaked, or done with autoyield? Revoke every key for your wallet,
+        including connected apps. You sign one message that says exactly that;
+        nothing on-chain changes.
+      </p>
+      <button class="danger-btn" id="revoke-all">Revoke all keys for my wallet</button>
+      <div id="revoke-status" class="status" style="display:none"></div>
+      <p style="margin-top:2rem"><a href="/">← back to autoyield</a></p>
+    </div>
 
     <script type="module" src="/src/account-main.ts"></script>
   </body>
