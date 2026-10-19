@@ -11,6 +11,7 @@ primary_region = 'sjc'
 [env]
   NODE_ENV = 'production'
   PORT = '3030'
+  XSTOCK_GATE_URL = 'https://stockwaves.net'  # until the 2026-10-31 retirement
 
 [[mounts]]
   source = 'data'

@@ -2,6 +2,8 @@
 
 > [!WARNING]
 > **This service will be retired on 31 October 2026.** After that date autoyield (the hosted connector at mcp.autoyield.org and the sign page on this site) is no longer operated. The npm package is deprecated; the source code stays available on GitHub. This domain will not be renewed and lapses in May 2027 — do not sign transactions or trust pages from it after that date. Thank you to everyone who tried it.
+>
+> **0.4.0 (final release):** the local stdio server keeps working and never links to autoyield.org (local mode has no hosted sign page). The StockWaves pre-trade gate has no default any more: unset, it is reported as "not run" and the buy tool still uses the mint pinned in the local registry. Set `XSTOCK_GATE_URL` only to a service you trust.
 
 **Research tokenized US stocks and USDC yield from Claude — paste one URL.**
 

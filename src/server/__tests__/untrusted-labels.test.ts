@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { dispatch, relayText } from "../tools.js"
 
+// 0.4.0 has no default gate URL; point it at a stub (read at module load, so hoisted above the import).
+vi.hoisted(() => { process.env.XSTOCK_GATE_URL = "https://gate.example" })
+
 describe("token metadata is relayed as data, never as hidden instructions", () => {
   afterEach(() => vi.unstubAllGlobals())
 

@@ -44,7 +44,10 @@ const amountArg = z.union([z.string(), z.number().finite().positive()]).transfor
 // Pre-trade safety gate — calls StockWaves' FREE tokenized-equity health preview to
 // check a token is the REAL one (not a copycat) and tradeable right now (peg / liquidity
 // / market-hours). READ-ONLY HTTP GET, no signing, no cost — fits the non-custodial model.
-const XSTOCK_GATE_BASE = process.env.XSTOCK_GATE_URL ?? "https://stockwaves.net"
+// 0.4.0: no default. The StockWaves gate was retired on 2026-10-31 (its public API returns 410); the hosted
+// deployment sets XSTOCK_GATE_URL in fly.toml until then. Unset = gate not run, reported as such (fail-open,
+// the mint is pinned from the local registry — see the buy tool).
+const XSTOCK_GATE_BASE = (process.env.XSTOCK_GATE_URL ?? "").replace(/\/+$/, "")
 type XstockSafety = {
   ok: boolean
   decision?: "ok" | "review" | "avoid"
@@ -84,6 +87,7 @@ async function checkXstockSafety(params: { symbol?: string; address?: string }):
 }
 
 async function checkXstockSafetyUncached(params: { symbol?: string; address?: string }): Promise<XstockSafety> {
+  if (!XSTOCK_GATE_BASE) return { ok: false, error: "safety gate not configured: the StockWaves gate was retired on 2026-10-31 (set XSTOCK_GATE_URL to use another)" }
   try {
     const q = params.address ? `address=${encodeURIComponent(params.address)}` : `symbol=${encodeURIComponent(params.symbol || "")}`
     const r = await fetch(`${XSTOCK_GATE_BASE}/api/xstock/health/preview?${q}`, {
