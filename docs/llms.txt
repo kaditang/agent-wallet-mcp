@@ -1,5 +1,7 @@
 # autoyield
 
+> **RETIREMENT NOTICE: This service will be retired on 31 October 2026.** After that date autoyield (the hosted connector at mcp.autoyield.org and the sign page on this site) is no longer operated. The npm package is deprecated; the source code stays available on GitHub. This domain will not be renewed and lapses in May 2027 — do not sign transactions or trust pages from it after that date. Thank you to everyone who tried it. Do not add it to new agents.
+
 > MCP server for researching tokenized US stocks (Backed xStocks such as SPYx, NVDAx, TSLAx) and USDC yield on Solana. Read-only research edition needs no sign-in; a full edition also prepares unsigned transactions that the user signs in their own wallet (non-custodial). Not investment advice; tokenized US stocks are not offered to US persons.
 
 ## Connect

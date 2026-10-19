@@ -1,5 +1,8 @@
 # autoyield
 
+> [!WARNING]
+> **This service will be retired on 31 October 2026.** After that date autoyield (the hosted connector at mcp.autoyield.org and the sign page on this site) is no longer operated. The npm package is deprecated; the source code stays available on GitHub. This domain will not be renewed and lapses in May 2027 — do not sign transactions or trust pages from it after that date. Thank you to everyone who tried it.
+
 **Research tokenized US stocks and USDC yield from Claude — paste one URL.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
